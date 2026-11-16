@@ -1,7 +1,11 @@
 package me.enivzoy.anilife.app.data
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import java.io.File
 import java.util.Properties
 
@@ -13,6 +17,7 @@ import java.util.Properties
 object AccountLibrary {
     private val mutex = Mutex()
     private val snapshots = StatusSnapshotStore()
+    private val idMap = MalIdMap()
 
     @Volatile var repository: AniListRepository? = null
     @Volatile var syncSavedEnabled: () -> Boolean = { true }
@@ -27,8 +32,18 @@ object AccountLibrary {
             }
             ListService.MAL -> {
                 val rows = MyAnimeListSync.rows()
-                val cards = repo.cardsByMalIds(rows.map { it.malId }).mapNotNull { c -> c.malId?.let { it to c } }.toMap()
-                malRowsToEntries(rows, cards)
+                val malIds = rows.map { it.malId }.distinct()
+                val gate = Semaphore(10)
+                val resolved = kotlinx.coroutines.coroutineScope {
+                    malIds.map { id ->
+                        async(kotlinx.coroutines.Dispatchers.IO) { gate.withPermit { id to idMap.resolve(id) } }
+                    }.awaitAll().toMap()
+                }
+                val mapped = resolved.values.filterNotNull().distinct()
+                val mappedCards = if (mapped.isEmpty()) emptyList() else repo.cardsByIds(mapped)
+                val unmapped = resolved.filterValues { it == null }.keys.toList()
+                val fallback = if (unmapped.isEmpty()) emptyList() else repo.cardsByMalIds(unmapped)
+                malRowsToEntries(rows, joinMalCards(malIds, resolved, mappedCards, fallback))
             }
             null -> null
         }
