@@ -13,6 +13,12 @@ name: Build Windows installers
 #     fire for the same change. Do not switch the sync to a personal access token without revisiting this.
 #   - You press "Run workflow". This always builds. Untick "Publish" to only get the installers as a
 #     downloadable artifact, without a release.
+#
+# Version boxes on "Run workflow": Base and Revision are optional and count only when "Publish" is
+# ticked. Left empty, the version comes from fork-version.properties. Typed, they are checked
+# (base 1.2.3, revision a whole number), refused if that release already exists, and written back
+# to fork-version.properties on main once the build succeeds, so the file always names the newest
+# release. That commit uses the built-in token, so it does not start another build.
 
 on:
   push:
@@ -24,6 +30,16 @@ on:
         description: "Publish a release from this build (untick to only upload the installers)"
         type: boolean
         default: true
+      base:
+        description: "Base version, only used when Publish is ticked. Format 1.0.6 (digits.digits.digits). Leave empty to use fork-version.properties"
+        type: string
+        required: false
+        default: ""
+      revision:
+        description: "Revision, only used when Publish is ticked. Format: a whole number such as 4. Leave empty to use fork-version.properties"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -39,16 +55,55 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       skip: ${{ steps.version.outputs.skip }}
+      base: ${{ steps.version.outputs.base }}
+      revision: ${{ steps.version.outputs.revision }}
+      version: ${{ steps.version.outputs.version }}
+      override: ${{ steps.version.outputs.override }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Skip a push whose version already has a release
+      - name: Work out the version and skip a push whose version already has a release
         id: version
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PUBLISH: ${{ inputs.publish }}
+          TYPED_BASE: ${{ inputs.base }}
+          TYPED_REVISION: ${{ inputs.revision }}
         run: |
-          version="$(grep -oP '^base=\K\S+' fork-version.properties)-AK$(grep -oP '^revision=\K\S+' fork-version.properties)"
+          base="$(grep -oP '^base=\K\S+' fork-version.properties)"
+          revision="$(grep -oP '^revision=\K\S+' fork-version.properties)"
+          override=false
+
+          # Typed values must be well formed whether or not they end up used, so a typo is never ignored quietly.
+          if [ -n "$TYPED_BASE" ] && ! [[ "$TYPED_BASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Base '$TYPED_BASE' must look like 1.0.6 (digits.digits.digits, no spaces)."; exit 1
+          fi
+          if [ -n "$TYPED_REVISION" ] && ! [[ "$TYPED_REVISION" =~ ^[0-9]+$ ]]; then
+            echo "::error::Revision '$TYPED_REVISION' must be a whole number such as 4 (digits only, no spaces)."; exit 1
+          fi
+          if [ -n "$TYPED_BASE" ] && [ -z "$TYPED_REVISION" ]; then
+            echo "::error::A base was typed without a revision. Type the revision too (use 1 for a new base)."; exit 1
+          fi
+
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$PUBLISH" = "true" ] && { [ -n "$TYPED_BASE" ] || [ -n "$TYPED_REVISION" ]; }; then
+            override=true
+            [ -n "$TYPED_BASE" ] && base="$TYPED_BASE"
+            [ -n "$TYPED_REVISION" ] && revision="$TYPED_REVISION"
+          elif [ -n "$TYPED_BASE$TYPED_REVISION" ]; then
+            echo "The version boxes are ignored because this run does not publish; using the version in fork-version.properties."
+          fi
+          version="$base-AK$revision"
           skip=false
+
+          # A typed version must be new: never replace an existing release by accident.
+          if [ "$override" = true ]; then
+            if out=$(gh api "repos/${{ github.repository }}/releases/tags/v$version" 2>&1); then
+              echo "::error::Release v$version already exists. Type a higher revision, or leave the boxes empty to rebuild it."; exit 1
+            elif ! echo "$out" | grep -q "Not Found"; then
+              echo "Could not check releases: $out"; exit 1
+            fi
+          fi
           if [ "${{ github.event_name }}" = "push" ]; then
             if out=$(gh api "repos/${{ github.repository }}/releases/tags/v$version" 2>&1); then
               skip=true
@@ -58,14 +113,23 @@ jobs:
               exit 1
             fi
           fi
-          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          {
+            echo "skip=$skip"
+            echo "version=$version"
+            echo "override=$override"
+            echo "base=$base"
+            echo "revision=$revision"
+          } >> "$GITHUB_OUTPUT"
           echo "### Version check" >> "$GITHUB_STEP_SUMMARY"
-          echo "Version \`$version\`, skip build: $skip" >> "$GITHUB_STEP_SUMMARY"
+          echo "Version \`$version\`, typed in the form: $override, skip build: $skip" >> "$GITHUB_STEP_SUMMARY"
 
   build-windows:
     needs: check
     if: needs.check.outputs.skip != 'true'
     runs-on: windows-latest
+    permissions:
+      contents: write
+      actions: write
     defaults:
       run:
         shell: pwsh
@@ -82,15 +146,16 @@ jobs:
       - name: Run tests
         run: .\gradlew test --no-daemon --no-configuration-cache
 
-      # Version comes from the tag (v1.2.3 -> 1.2.3), otherwise from fork-version.properties.
+      # Version comes from the tag (v1.2.3 -> 1.2.3), otherwise from the check job: the values typed
+      # in the Run workflow form, or else fork-version.properties.
       - name: Resolve version
+        env:
+          CHECKED_VERSION: ${{ needs.check.outputs.version }}
         run: |
           if ($env:GITHUB_REF -like 'refs/tags/v*') {
             $v = $env:GITHUB_REF_NAME.TrimStart('v')
           } else {
-            $props = @{}
-            Get-Content fork-version.properties | ForEach-Object { if ($_ -match '^\s*(base|revision)\s*=\s*(\S+)\s*$') { $props[$Matches[1]] = $Matches[2] } }
-            $v = "$($props['base'])-AK$($props['revision'])"
+            $v = $env:CHECKED_VERSION
           }
           if ($v -notmatch '^\d+\.\d+\.\d+(-AK\d+)?$') { throw "Version '$v' must look like 1.2.3 or 1.2.3-AK1" }
           "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -185,6 +250,24 @@ jobs:
         run: |
           "### Windows build" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "Version: ``$env:VERSION``" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      # A version typed in the form becomes the file's version, so the release workflow (which reads
+      # the file) publishes it and the next sync compares against it.
+      - name: Save the typed version to fork-version.properties
+        if: needs.check.outputs.override == 'true'
+        env:
+          NEW_BASE: ${{ needs.check.outputs.base }}
+          NEW_REVISION: ${{ needs.check.outputs.revision }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+          (Get-Content fork-version.properties) |
+            ForEach-Object { $_ -replace '^base=.*$', "base=$env:NEW_BASE" -replace '^revision=.*$', "revision=$env:NEW_REVISION" } |
+            Set-Content fork-version.properties
+          git add fork-version.properties
+          git commit -m "Set version to $env:NEW_BASE-AK$env:NEW_REVISION from the build form"
+          git push origin HEAD:main
 
       - name: Start the release workflow
         if: inputs.publish != false
