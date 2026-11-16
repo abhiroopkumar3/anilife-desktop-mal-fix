@@ -377,6 +377,7 @@ fun AniLifeApp(
                     Screen.Schedule -> ScheduleScreen(repository = repository, onOpen = { navigateTo(Screen.Detail(it)) })
                     Screen.Library -> LibraryScreen(
                         repository = repository,
+                        hiddenPosterElements = settings.hiddenPosterElements,
                         onOpen = { navigateTo(Screen.Detail(it)) },
                         onBrowse = { navigateTo(Screen.Browse) },
                     )

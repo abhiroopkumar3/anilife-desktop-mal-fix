@@ -37,9 +37,10 @@ Status: **Done** (ported and tested), **Planned**, **Not ported** (no Windows eq
 
 | Android | Windows | Status | Notes |
 |---|---|---|---|
-| Chips with counts, search, filters, sort, carousel or expand | `screens/LibraryScreen.kt` | Planned | |
-| `SavedAnimeCard` long press (`AnimeListActionsDialog`) | `screens/LibraryScreen.kt` | Planned | Right click on Windows |
-| `PosterElement` settings | | Planned | Which badges show |
+| Chips with counts, search, filters, sort, carousel or expand, Continue Watching section | `screens/LibraryScreen.kt` | Done (needs a visual check on a PC) | Result count sums the chosen lists. Right-click hint replaces Android's long-press wording. Choices last for the app session. Android's DUB badge and Downloads are not ported |
+| `SavedAnimeCard` delete disc and confirm | `screens/LibraryScreen.kt` | Done | Both services (AniList delete, MAL `removeEntry`) |
+| `SavedAnimeCard` long press (`AnimeListActionsDialog`) | `screens/LibraryScreen.kt` | Planned | Right click on Windows (step 5) |
+| `PosterElement` settings | `data/LibraryRules.kt`, Settings screen | Done | Android keeps the switched-off ones, so does Windows. No DUB (needs the dub index) or 18+ switch |
 
 ## Not ported
 

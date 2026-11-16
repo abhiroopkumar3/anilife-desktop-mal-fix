@@ -87,6 +87,9 @@ import androidx.compose.ui.text.platform.Font
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import me.enivzoy.anilife.app.data.PosterElement
+import me.enivzoy.anilife.app.data.posterElementNames
+import me.enivzoy.anilife.app.data.posterElementsOff
 import me.enivzoy.anilife.app.data.AppSettings
 import me.enivzoy.anilife.app.data.AppSettingsStore
 import me.enivzoy.anilife.app.data.DirectMediaDownloader
@@ -1190,6 +1193,19 @@ private fun AppSettingsPage(
     checkingForUpdates: Boolean,
     onCheckForUpdates: () -> Unit,
 ) {
+    SettingsSection("Library posters") {
+        PosterElement.entries.forEach { element ->
+            SettingsRow(element.label, "Show this on each poster on the Library page.") {
+                val off = posterElementsOff(settings.hiddenPosterElements)
+                SettingsSwitch(element !in off) { shown ->
+                    onSettingsChange {
+                        val now = posterElementsOff(it.hiddenPosterElements)
+                        it.copy(hiddenPosterElements = posterElementNames(if (shown) now - element else now + element))
+                    }
+                }
+            }
+        }
+    }
     SettingsSection("Updates") {
         SettingsRow(
             "Sync saved titles with your account",

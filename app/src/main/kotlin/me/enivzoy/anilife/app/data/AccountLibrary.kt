@@ -2,6 +2,8 @@ package me.enivzoy.anilife.app.data
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -21,6 +23,11 @@ object AccountLibrary {
     private val idMap = MalIdMap()
     private val pending = PendingSavedStore()
 
+    private val mutableMalEntries = MutableStateFlow<List<ListEntry>>(emptyList())
+
+    /** The MyAnimeList account's list, as last read. Empty unless MyAnimeList is the active account. */
+    val malEntries = mutableMalEntries.asStateFlow()
+
     @Volatile var repository: AniListRepository? = null
     @Volatile var syncSavedEnabled: () -> Boolean = { true }
 
@@ -29,6 +36,7 @@ object AccountLibrary {
         val repo = repository ?: return null
         return when (serviceToKeep(AniListSync.user.value != null, MyAnimeListSync.user.value != null, null)) {
             ListService.ANILIST -> {
+                mutableMalEntries.value = emptyList()
                 AniListSync.refreshList()
                 aniListEntriesToEntries(AniListSync.entries.value)
             }
@@ -46,8 +54,12 @@ object AccountLibrary {
                 val unmapped = resolved.filterValues { it == null }.keys.toList()
                 val fallback = if (unmapped.isEmpty()) emptyList() else repo.cardsByMalIds(unmapped)
                 malRowsToEntries(rows, joinMalCards(malIds, resolved, mappedCards, fallback))
+                    .also { mutableMalEntries.value = it }
             }
-            null -> null
+            null -> {
+                mutableMalEntries.value = emptyList()
+                null
+            }
         }
     }
 

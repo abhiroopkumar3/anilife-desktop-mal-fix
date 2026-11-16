@@ -184,6 +184,17 @@ object MyAnimeListSync {
         }
     }
 
+    /** Take a title off the signed-in MAL list, whatever its status. */
+    suspend fun removeEntry(malId: Long) = mutex.withLock {
+        val token = accessToken(tokens ?: error("Connect a MyAnimeList account first."))
+        val delete = HttpRequest.newBuilder(URI.create("$API/anime/$malId/my_list_status"))
+            .header("Authorization", "Bearer $token").DELETE().build()
+        val response = withContext(Dispatchers.IO) { http.send(delete, HttpResponse.BodyHandlers.ofString()) }
+        check(response.statusCode() in 200..299 || response.statusCode() == 404) {
+            "MyAnimeList: delete failed (HTTP ${response.statusCode()})."
+        }
+    }
+
     suspend fun syncCompletedEpisode(malId: Long, watched: Int) = mutex.withLock {
         val current = tokens ?: return@withLock
         val token = accessToken(current)

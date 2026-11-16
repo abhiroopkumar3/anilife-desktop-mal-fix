@@ -29,6 +29,21 @@ enum class LibrarySort(val label: String) {
     DEFAULT("Default"),
 }
 
+/** What a poster can show besides the cover. Android keeps the ones switched off, so a new one is on by default. */
+enum class PosterElement(val label: String) {
+    SCORE("Score"),
+    NEW_EPISODES("New episodes"),
+    PROGRESS("Progress"),
+    TITLE("Title"),
+    DETAILS("Status and format"),
+}
+
+fun posterElementsOff(names: String): Set<PosterElement> =
+    names.split(',').mapNotNull { name -> PosterElement.entries.firstOrNull { it.name == name.trim() } }.toSet()
+
+fun posterElementNames(off: Set<PosterElement>): String =
+    PosterElement.entries.filter { it in off }.joinToString(",") { it.name }
+
 /**
  * One title on the account's list, in one shape for MyAnimeList and AniList alike. Statuses use
  * AniList's words (CURRENT, REPEATING, PLANNING, PAUSED, COMPLETED, DROPPED), as Android's does.
