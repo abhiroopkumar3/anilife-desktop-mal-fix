@@ -39,8 +39,17 @@ Status: **Done** (ported and tested), **Planned**, **Not ported** (no Windows eq
 |---|---|---|---|
 | Chips with counts, search, filters, sort, carousel or expand, Continue Watching section | `screens/LibraryScreen.kt` | Done (needs a visual check on a PC) | Result count sums the chosen lists. Right-click hint replaces Android's long-press wording. Choices last for the app session. Android's DUB badge and Downloads are not ported |
 | `SavedAnimeCard` delete disc and confirm | `screens/LibraryScreen.kt` | Done | Both services (AniList delete, MAL `removeEntry`) |
-| `SavedAnimeCard` long press (`AnimeListActionsDialog`) | `screens/LibraryScreen.kt` | Planned | Right click on Windows (step 5) |
+| `AnimeListActionsDialog`, `ContinueWatchingActionsDialog`, `AnimeScoreDialog`, `AnimeProgressDialog` | `screens/ListActionsDialog.kt`, `data/ListEdits.kt` | Done, except the rows named below (needs a visual check on a PC) | Right click on Windows. Move on either service, score 1 to 10, episode count up or down, delete with confirm, remove from watchlist. Library posters and Continue cards, plus Home's Continue cards |
+| `planRewatchMove`, `rewatchArguments`, `aniListScoreRaw`, `malWriteMismatch`, `savedRowSurvivesMoveTo` | `data/ListEditRules.kt` | Done (rule) | 7 tests in `ListEditRulesTest` |
+| `updateAnimeListStatus`, `updateAnimeListScore`, `setAnimeListProgress`, `deleteAnimeListEntry`, `setAnimeWatched` | `data/ListEdits.kt`, `AniListAccountApi`, `MyAnimeListSync.writeEntry` | Done | Same GraphQL and MAL writes, with the same confirm-after-write checks and rewatch handling |
 | `PosterElement` settings | `data/LibraryRules.kt`, Settings screen | Done | Android keeps the switched-off ones, so does Windows. No DUB (needs the dub index) or 18+ switch |
+
+## Menu differences
+
+- The Detail page's Save button still toggles the local save; on Android it opens this menu. Outside the My List page.
+- "My lists" rows in the menu arrive with custom lists (step 7).
+- Android's "Watched" row for a signed-out viewer belongs to LocalWatchedStore, not ported.
+- Android also tells Simkl about moves and removals; Simkl is not part of Windows.
 
 ## Not ported
 

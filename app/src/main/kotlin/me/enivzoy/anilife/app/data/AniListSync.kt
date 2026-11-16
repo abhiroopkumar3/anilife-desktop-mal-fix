@@ -192,6 +192,26 @@ object AniListSync {
         }
     }
 
+    // The card menu's writes. Each reads nothing back into the cached list; the caller refreshes it.
+    suspend fun moveStatus(mediaId: Long, status: String) = mutex.withLock {
+        val (_, auth) = requireConnected(); api.moveStatus(auth.accessToken, mediaId, status)
+    }
+    suspend fun markWatched(mediaId: Long, totalEpisodes: Int?) = mutex.withLock {
+        val (_, auth) = requireConnected(); api.markWatched(auth.accessToken, mediaId, totalEpisodes)
+    }
+    suspend fun setScore(mediaId: Long, score: Int) = mutex.withLock {
+        val (_, auth) = requireConnected(); api.setScore(auth.accessToken, mediaId, score)
+    }
+    suspend fun progressOf(mediaId: Long): Int? = mutex.withLock {
+        val (_, auth) = requireConnected(); api.snapshot(auth.accessToken, mediaId)?.progress
+    }
+    suspend fun setProgress(mediaId: Long, progress: Int) = mutex.withLock {
+        val (_, auth) = requireConnected(); api.setProgress(auth.accessToken, mediaId, progress)
+    }
+    suspend fun deleteByMedia(mediaId: Long): Boolean = mutex.withLock {
+        val (_, auth) = requireConnected(); api.deleteByMedia(auth.accessToken, mediaId)
+    }
+
     suspend fun updateEntry(
         entry: AniListListEntry,
         status: AniListListStatus,

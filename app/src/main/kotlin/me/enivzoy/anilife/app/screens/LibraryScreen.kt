@@ -84,6 +84,7 @@ import me.enivzoy.anilife.app.data.AniListScoreFormat
 import me.enivzoy.anilife.app.data.AniListSync
 import me.enivzoy.anilife.app.data.ContinueStoreInstance
 import me.enivzoy.anilife.app.data.LibraryCardData
+import me.enivzoy.anilife.app.data.ListEdits
 import me.enivzoy.anilife.app.data.LibrarySort
 import me.enivzoy.anilife.app.data.LibraryView
 import me.enivzoy.anilife.app.data.ListEntry
@@ -105,6 +106,7 @@ import me.enivzoy.anilife.app.ui.EmptyPanel
 import me.enivzoy.anilife.app.ui.PageScrollbar
 import me.enivzoy.anilife.app.ui.RemoteImage
 import me.enivzoy.anilife.app.ui.ScoreTag
+import me.enivzoy.anilife.app.ui.onRightClick
 import me.enivzoy.anilife.app.ui.parseAnimeColor
 
 /**
@@ -197,20 +199,16 @@ fun LibraryScreen(
     val scope = rememberCoroutineScope()
     var error by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<LibraryCardData?>(null) }
+    var menuCard by remember { mutableStateOf<LibraryCardData?>(null) }
+    var continueMenu by remember { mutableStateOf<me.enivzoy.anilife.app.data.ContinueEntry?>(null) }
     val listState = rememberLazyListState()
 
     fun deleteFromAccount(card: LibraryCardData) {
         scope.launch {
             error = null
             try {
-                if (aniListUser != null) {
-                    val entry = aniListEntries.firstOrNull { it.anime.id == card.id } ?: return@launch
-                    AniListSync.deleteEntry(entry)
-                } else {
-                    val malId = malEntries.firstOrNull { it.anime.id == card.id }?.anime?.malId ?: return@launch
-                    MyAnimeListSync.removeEntry(malId)
-                    AccountLibrary.refresh()
-                }
+                // The same call and clean-up as the card menu's Delete, so the two can never differ.
+                ListEdits.delete(card.id)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Throwable) {
@@ -260,9 +258,9 @@ fun LibraryScreen(
                             if (emptyText != null) {
                                 EmptyLine(emptyText)
                             } else if (expanded) {
-                                PosterGrid(cards, columns, off, nowSec, signedIn, onOpen) { pendingDelete = it }
+                                PosterGrid(cards, columns, off, nowSec, signedIn, onOpen, { menuCard = it }) { pendingDelete = it }
                             } else {
-                                PosterCarousel(view.name + cards.size, cards, off, nowSec, signedIn, onOpen) { pendingDelete = it }
+                                PosterCarousel(view.name + cards.size, cards, off, nowSec, signedIn, onOpen, { menuCard = it }) { pendingDelete = it }
                             }
                         }
                     }
@@ -277,6 +275,7 @@ fun LibraryScreen(
                         onToggle = { LibraryUiState.continueExpanded = !LibraryUiState.continueExpanded },
                         onOpen = onOpen,
                         columns = columns,
+                        onMenu = { continueMenu = it },
                     )
                 }
                 if (!signedIn && saves.isEmpty()) {
@@ -287,6 +286,21 @@ fun LibraryScreen(
             }
             PageScrollbar(rememberScrollbarAdapter(listState), Modifier.align(Alignment.CenterEnd))
         }
+    }
+
+    menuCard?.let { card ->
+        AnimeListActionsDialog(
+            anilistId = card.id,
+            title = card.title,
+            cover = card.cover,
+            metadata = listOfNotNull(card.status?.let(::statusLabel), card.format?.let(::formatText)).joinToString(" · ").ifBlank { null },
+            saved = saves.any { it.anime.id == card.id },
+            onRemoveSaved = { repository.removeFromLibrary(card.id) },
+            onDismiss = { menuCard = null },
+        )
+    }
+    continueMenu?.let { row ->
+        ContinueActionsDialog(entry = row, onOpenDetails = { onOpen(row.anime.id) }, onDismiss = { continueMenu = null })
     }
 
     pendingDelete?.let { card ->
@@ -465,13 +479,14 @@ private fun PosterGrid(
     nowSec: Long,
     signedIn: Boolean,
     onOpen: (Long) -> Unit,
+    onMenu: (LibraryCardData) -> Unit,
     onDelete: (LibraryCardData) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
         cards.chunked(columns).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                 row.forEach { card ->
-                    Box(Modifier.weight(1f)) { LibraryPosterCard(card, off, nowSec, signedIn, onOpen, onDelete) }
+                    Box(Modifier.weight(1f)) { LibraryPosterCard(card, off, nowSec, signedIn, onOpen, onMenu, onDelete) }
                 }
                 repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
             }
@@ -487,6 +502,7 @@ private fun PosterCarousel(
     nowSec: Long,
     signedIn: Boolean,
     onOpen: (Long) -> Unit,
+    onMenu: (LibraryCardData) -> Unit,
     onDelete: (LibraryCardData) -> Unit,
 ) {
     val state = rememberLazyListState()
@@ -496,7 +512,7 @@ private fun PosterCarousel(
     LaunchedEffect(key) { if (!dragged) state.scrollToItem(0) }
     LazyRow(state = state, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         items(cards, key = { it.id }) { card ->
-            Box(Modifier.width(168.dp)) { LibraryPosterCard(card, off, nowSec, signedIn, onOpen, onDelete) }
+            Box(Modifier.width(168.dp)) { LibraryPosterCard(card, off, nowSec, signedIn, onOpen, onMenu, onDelete) }
         }
     }
 }
@@ -508,6 +524,7 @@ private fun ContinueSection(
     onToggle: () -> Unit,
     onOpen: (Long) -> Unit,
     columns: Int,
+    onMenu: (me.enivzoy.anilife.app.data.ContinueEntry) -> Unit,
 ) {
     LibrarySection(
         title = "Continue Watching",
@@ -523,7 +540,9 @@ private fun ContinueSection(
                 sorted.chunked((columns / 2).coerceAtLeast(1)).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                         row.forEach { entry ->
-                            ContinueCard(entry, onResume = { onOpen(it.anime.id) }, onDetails = onOpen, onRemove = ContinueStoreInstance::remove)
+                            Box(Modifier.onRightClick { onMenu(entry) }) {
+                                ContinueCard(entry, onResume = { onOpen(it.anime.id) }, onDetails = onOpen, onRemove = ContinueStoreInstance::remove)
+                            }
                         }
                     }
                 }
@@ -531,7 +550,9 @@ private fun ContinueSection(
         } else {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 items(sorted, key = { it.anime.id }) { entry ->
-                    ContinueCard(entry, onResume = { onOpen(it.anime.id) }, onDetails = onOpen, onRemove = ContinueStoreInstance::remove)
+                    Box(Modifier.onRightClick { onMenu(entry) }) {
+                        ContinueCard(entry, onResume = { onOpen(it.anime.id) }, onDetails = onOpen, onRemove = ContinueStoreInstance::remove)
+                    }
                 }
             }
         }
@@ -546,12 +567,14 @@ private fun LibraryPosterCard(
     nowSec: Long,
     signedIn: Boolean,
     onOpen: (Long) -> Unit,
+    onMenu: (LibraryCardData) -> Unit,
     onDelete: (LibraryCardData) -> Unit,
 ) {
     val tint = remember { parseAnimeColor(null) }
     val newEpisodes = newEpisodeCount(card, nowSec)
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            .onRightClick { onMenu(card) }
             .clickable { onOpen(card.id) }
             .pointerHoverIcon(PointerIcon.Hand),
         verticalArrangement = Arrangement.spacedBy(8.dp),

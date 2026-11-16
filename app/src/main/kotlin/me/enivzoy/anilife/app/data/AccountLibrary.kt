@@ -63,6 +63,10 @@ object AccountLibrary {
         }
     }
 
+    /** The service whose list the menus write to, or null when nobody is signed in. */
+    fun activeService(): ListService? =
+        serviceToKeep(AniListSync.user.value != null, MyAnimeListSync.user.value != null, null)
+
     private fun accountKey(): String? = when {
         AniListSync.user.value != null -> "anilist:${AniListSync.user.value!!.id}"
         MyAnimeListSync.user.value != null -> "mal:${MyAnimeListSync.user.value!!.id}"

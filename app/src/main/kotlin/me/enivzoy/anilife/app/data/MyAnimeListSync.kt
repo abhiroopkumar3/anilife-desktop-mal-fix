@@ -195,6 +195,42 @@ object MyAnimeListSync {
         }
     }
 
+    /** The entry plus MyAnimeList's own episode count, the figure a progress write is measured against. */
+    suspend fun animeStatus(malId: Long): MalAnimeStatus = mutex.withLock {
+        val token = accessToken(tokens ?: error("Connect a MyAnimeList account first."))
+        animeStatusLocked(token, malId)
+    }
+
+    private suspend fun animeStatusLocked(token: String, malId: Long): MalAnimeStatus {
+        val fields = "my_list_status{status,score,num_episodes_watched,is_rewatching,num_times_rewatched,updated_at,tags},num_episodes"
+        val get = HttpRequest.newBuilder(URI.create("$API/anime/$malId?fields=${encode(fields)}"))
+            .header("Authorization", "Bearer $token").GET().build()
+        return parseMalAnimeStatus(requestJson(get))
+    }
+
+    /** Upsert status, count, score or rewatch fields, then check MyAnimeList did what was asked. */
+    suspend fun writeEntry(malId: Long, write: MalWrite): MalEntryStatus = mutex.withLock {
+        val token = accessToken(tokens ?: error("Connect a MyAnimeList account first."))
+        val body = listOfNotNull(
+            write.progress?.let { "num_watched_episodes" to it.toString() },
+            write.status?.let { "status" to it },
+            write.isRewatching?.let { "is_rewatching" to it.toString() },
+            write.score?.let { "score" to it.toString() },
+            write.numTimesRewatched?.let { "num_times_rewatched" to it.toString() },
+        ).toTypedArray()
+        write.score?.let { require(it in 0..10) { "A MyAnimeList score is 0 to 10, not $it" } }
+        val patch = HttpRequest.newBuilder(URI.create("$API/anime/$malId/my_list_status"))
+            .header("Authorization", "Bearer $token")
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .method("PATCH", HttpRequest.BodyPublishers.ofString(form(*body))).build()
+        val confirmed = parseMalEntryStatus(requestJson(patch))
+        malWriteMismatch(write, confirmed)?.let { error(it) }
+        confirmed
+    }
+
+    /** The entry's current status, for a move that depends on it (a rewatch). Null when not listed. */
+    suspend fun entryOf(malId: Long): MalEntryStatus? = animeStatus(malId).entry
+
     suspend fun syncCompletedEpisode(malId: Long, watched: Int) = mutex.withLock {
         val current = tokens ?: return@withLock
         val token = accessToken(current)
