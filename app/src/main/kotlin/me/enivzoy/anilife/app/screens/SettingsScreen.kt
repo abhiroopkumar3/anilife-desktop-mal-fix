@@ -45,6 +45,7 @@ import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.Subtitles
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.VideoLibrary
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -64,7 +65,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
@@ -88,7 +91,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import me.enivzoy.anilife.app.data.AppSettings
+import me.enivzoy.anilife.app.data.AniListRepository
+import me.enivzoy.anilife.app.data.AppBackup
 import me.enivzoy.anilife.app.data.AppSettingsStore
+import me.enivzoy.anilife.app.data.BackupDocument
+import me.enivzoy.anilife.app.data.DataTransfer
 import me.enivzoy.anilife.app.data.DirectMediaDownloader
 import me.enivzoy.anilife.app.data.DiscordOAuth
 import me.enivzoy.anilife.app.data.DiscordOAuthState
@@ -112,6 +119,7 @@ import javax.swing.filechooser.FileNameExtensionFilter
 @Composable
 fun SettingsScreen(
     settings: AppSettings,
+    repository: AniListRepository,
     discordState: DiscordPresenceState,
     onSettingsChange: ((AppSettings) -> AppSettings) -> Unit,
     onDiscordConnect: () -> Unit,
@@ -182,7 +190,7 @@ fun SettingsScreen(
                         SettingsPage.Notifications -> NotificationSettings()
                         SettingsPage.Content -> ContentSettings(settings, onSettingsChange)
                         SettingsPage.Appearance -> AppearanceSettings(settings, onSettingsChange)
-                        SettingsPage.Data -> DataSettings(settings, onSettingsChange)
+                        SettingsPage.Data -> DataSettings(settings, onSettingsChange, repository)
                         SettingsPage.App -> AppSettingsPage(
                             settings = settings,
                             onSettingsChange = onSettingsChange,
@@ -214,7 +222,7 @@ private enum class SettingsPage(
     Notifications("Notifications", "Release and episode alerts", Icons.Rounded.Notifications, "alerts reminders episodes releases"),
     Content("Content", "Titles and what the app opens with", Icons.Rounded.VideoLibrary, "title language romaji english native"),
     Appearance("Appearance", "Theme and type", Icons.Rounded.Palette, "css theme colors palette font typeface editor"),
-    Data("Data", "Buffers, cache, and storage", Icons.Rounded.Storage, "buffer memory cache storage"),
+    Data("Data", "Backups, MyAnimeList files, and storage", Icons.Rounded.Storage, "buffer memory cache storage backup restore export import xml json"),
     App("App", "Updates, decoding, performance, and startup", Icons.Rounded.Apps, "updates version release hardware decoding gpu startup intro splash"),
     About("About", "Version, keyboard shortcuts, and the people behind it", Icons.Rounded.Info, "app version metadata player providers credits links website discord shortcuts repository"),
 }
@@ -246,6 +254,10 @@ private val settingSearchEntries = listOf(
     SettingSearchEntry("App font", SettingsPage.Appearance, "font typeface text sans serif mono"),
     SettingSearchEntry("Theme colors", SettingsPage.Appearance, "css theme colors palette editor custom look style"),
     SettingSearchEntry("Playback buffer", SettingsPage.Data, "stream buffering memory"),
+    SettingSearchEntry("Back up to a file", SettingsPage.Data, "backup save export library settings json"),
+    SettingSearchEntry("Restore from a backup", SettingsPage.Data, "restore import backup android json"),
+    SettingSearchEntry("Export MyAnimeList XML", SettingsPage.Data, "mal export xml list"),
+    SettingSearchEntry("Import MyAnimeList XML", SettingsPage.Data, "mal import xml list"),
     SettingSearchEntry("Play startup intro", SettingsPage.App, "animation splash opening startup"),
     SettingSearchEntry("Hardware decoding", SettingsPage.App, "gpu acceleration decoder cpu"),
     SettingSearchEntry("Check for updates on launch", SettingsPage.App, "automatic updates release startup"),
@@ -1166,19 +1178,206 @@ private fun AppearanceSettings(settings: AppSettings, onSettingsChange: ((AppSet
     }
 }
 
+/** What the last Data action did, for the line under the buttons. */
+private data class DataResult(val message: String, val isError: Boolean = false)
+
+/** Backups and MyAnimeList files: the same four actions, and the same files, as the Android app's Data screen. */
 @Composable
-private fun DataSettings(settings: AppSettings, onSettingsChange: ((AppSettings) -> AppSettings) -> Unit) {
-    SettingsRow(
-        "Playback buffer",
-        "Larger buffers use more memory and can help unstable connections.",
-    ) {
-        SettingsSegmented(
-            choices = listOf("auto" to "Auto", "small" to "Small", "medium" to "Medium", "large" to "Large"),
-            selected = settings.playbackBufferSize,
-            onSelect = { value -> onSettingsChange { it.copy(playbackBufferSize = value) } },
+private fun DataSettings(
+    settings: AppSettings,
+    onSettingsChange: ((AppSettings) -> AppSettings) -> Unit,
+    repository: AniListRepository,
+) {
+    val scope = rememberCoroutineScope()
+    val transfer = remember(repository) { DataTransfer(repository) }
+    var busy by remember { mutableStateOf<String?>(null) }
+    var result by remember { mutableStateOf<DataResult?>(null) }
+    var pendingRestore by remember { mutableStateOf<BackupDocument?>(null) }
+
+    fun run(label: String, work: suspend () -> DataResult) {
+        busy = label
+        result = null
+        scope.launch {
+            result = try {
+                work()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                DataResult(failure.message?.takeIf(String::isNotBlank) ?: "That didn't work.", isError = true)
+            } finally {
+                busy = null
+            }
+        }
+    }
+
+    fun progressLabel(prefix: String): (Int, Int) -> Unit = { done, total ->
+        if (total > 0) busy = "$prefix ($done/$total)"
+    }
+
+    fun backUp() {
+        val target = chooseDataFile("Save an Anilife backup", save = true, suggested = AppBackup.fileName(), extension = ".json") ?: return
+        run("Backing up") {
+            withContext(Dispatchers.IO) {
+                val document = transfer.createBackup(settings)
+                java.nio.file.Files.writeString(target, AppBackup.encode(document))
+                DataResult("Saved ${document.describe()} to ${target.fileName}.")
+            }
+        }
+    }
+
+    fun chooseBackup() {
+        val source = chooseDataFile("Choose an Anilife backup", save = false) ?: return
+        run("Reading") {
+            withContext(Dispatchers.IO) {
+                if (java.nio.file.Files.size(source) > AppBackup.MAX_SOURCE_BYTES) {
+                    throw IllegalArgumentException("That file is too large to be an Anilife backup.")
+                }
+                pendingRestore = AppBackup.decode(java.nio.file.Files.readString(source))
+            }
+            DataResult("")
+        }
+    }
+
+    fun restore(document: BackupDocument) {
+        run("Restoring") {
+            val summary = transfer.restore(document, applySettings = onSettingsChange, onProgress = progressLabel("Restoring"))
+            val extras = buildList {
+                if (summary.notRestored.isNotEmpty()) add("Not carried over: ${summary.notRestored.joinToString(", ")}.")
+                addAll(summary.warnings)
+            }
+            DataResult(("Restored ${summary.describe()}. " + extras.joinToString(" ")).trim())
+        }
+    }
+
+    fun exportMal() {
+        run("Exporting") {
+            val export = transfer.buildMalExport(progressLabel("Exporting"))
+            if (export.exportedCount == 0) {
+                return@run DataResult(
+                    if (export.skippedCount > 0) "None of your ${export.skippedCount} titles has a MyAnimeList id yet, so there is nothing to export."
+                    else "There is nothing to export yet. Save some anime to your library first.",
+                    isError = true,
+                )
+            }
+            val target = chooseDataFile("Save a MyAnimeList export", save = true, suggested = export.fileName, extension = ".xml")
+                ?: return@run DataResult("Export cancelled.")
+            withContext(Dispatchers.IO) { java.nio.file.Files.writeString(target, export.xml) }
+            val skipped = if (export.skippedCount > 0) " ${export.skippedCount} without a MyAnimeList id were left out." else ""
+            DataResult("Exported ${export.exportedCount} anime to ${target.fileName}.$skipped")
+        }
+    }
+
+    fun importMal() {
+        val source = chooseDataFile("Choose a MyAnimeList export (.xml or .xml.gz)", save = false) ?: return
+        run("Importing") {
+            val bytes = withContext(Dispatchers.IO) {
+                if (java.nio.file.Files.size(source) > me.enivzoy.anilife.app.data.MalImport.MAX_SOURCE_BYTES) {
+                    throw IllegalArgumentException("The MAL export is larger than the 16 MB safety limit.")
+                }
+                java.nio.file.Files.readAllBytes(source)
+            }
+            val summary = transfer.importMalXml(bytes, progressLabel("Matching titles"))
+            val parts = buildList {
+                add("${summary.added} added")
+                if (summary.alreadySaved > 0) add("${summary.alreadySaved} already saved")
+                if (summary.unmatched > 0) add("${summary.unmatched} not found on AniList")
+            }
+            DataResult("Imported ${summary.totalEntries} entries: ${parts.joinToString(", ")}.")
+        }
+    }
+
+    SettingsSection("Backup and restore") {
+        SettingsRow(
+            "Back up to a file",
+            "Saved anime and Continue Watching, plus the settings both apps share. The file opens in the Android app too.",
+        ) { SettingsButton(text = "Back up", enabled = busy == null, onClick = ::backUp) }
+        SettingsRow(
+            "Restore from a backup",
+            "Replaces the shared settings; adds saved anime and history to this PC. Works with files from the Android app.",
+        ) { SettingsButton(text = "Restore", enabled = busy == null, onClick = ::chooseBackup) }
+    }
+    SettingsSection("MyAnimeList files") {
+        SettingsRow(
+            "Export MyAnimeList XML",
+            "Save your list as a MAL-compatible file you can import on myanimelist.net.",
+        ) { SettingsButton(text = "Export", enabled = busy == null, onClick = ::exportMal) }
+        SettingsRow(
+            "Import MyAnimeList XML",
+            "Add a MAL export to your library. Titles you already saved are left alone.",
+        ) { SettingsButton(text = "Import", enabled = busy == null, onClick = ::importMal) }
+    }
+    busy?.let { SettingsNote("$it…") }
+    result?.takeIf { it.message.isNotBlank() }?.let { outcome ->
+        Text(
+            outcome.message,
+            color = if (outcome.isError) AniLifeColors.Destructive else AniLifeColors.Primary,
+            fontSize = 13.sp,
+            lineHeight = 18.sp,
+            modifier = Modifier.padding(vertical = 10.dp),
         )
     }
+
+    SettingsSection("Playback") {
+        SettingsRow(
+            "Playback buffer",
+            "Larger buffers use more memory and can help unstable connections.",
+        ) {
+            SettingsSegmented(
+                choices = listOf("auto" to "Auto", "small" to "Small", "medium" to "Medium", "large" to "Large"),
+                selected = settings.playbackBufferSize,
+                onSelect = { value -> onSettingsChange { it.copy(playbackBufferSize = value) } },
+            )
+        }
+    }
     SettingsNote("Downloads are stored in the download folder chosen on the Downloads page.")
+
+    pendingRestore?.let { document ->
+        AlertDialog(
+            onDismissRequest = { pendingRestore = null },
+            containerColor = AniLifeColors.Card,
+            titleContentColor = AniLifeColors.Foreground,
+            textContentColor = AniLifeColors.MutedForeground,
+            title = { Text("Restore this backup?", fontWeight = FontWeight.SemiBold) },
+            text = {
+                Text(
+                    "The file holds ${document.describe()}. Settings both apps share are replaced; saved anime " +
+                        "and Continue Watching are added to what is already here, never removed.",
+                    fontSize = 14.sp,
+                    lineHeight = 21.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { pendingRestore = null; restore(document) }) {
+                    Text("Restore", color = AniLifeColors.Primary, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRestore = null }) {
+                    Text("Cancel", color = AniLifeColors.MutedForeground)
+                }
+            },
+        )
+    }
+}
+
+/** A native open or save dialog; null when the viewer cancels. A save always ends in [extension]. */
+private fun chooseDataFile(
+    title: String,
+    save: Boolean,
+    suggested: String? = null,
+    extension: String? = null,
+): java.nio.file.Path? {
+    val parent = java.awt.Frame()
+    parent.isVisible = false
+    val dialog = java.awt.FileDialog(parent, title, if (save) java.awt.FileDialog.SAVE else java.awt.FileDialog.LOAD)
+    suggested?.let { dialog.file = it }
+    dialog.isVisible = true
+    val chosen = dialog.file?.let { name ->
+        val named = if (save && extension != null && !name.endsWith(extension, ignoreCase = true)) name + extension else name
+        File(dialog.directory, named)
+    }
+    parent.dispose()
+    return chosen?.toPath()
 }
 
 @Composable

@@ -373,6 +373,7 @@ fun AniLifeApp(
                     )
                     Screen.Settings -> SettingsScreen(
                         settings = settings,
+                        repository = repository,
                         discordState = discordState,
                         onSettingsChange = ::updateSettings,
                         onDiscordConnect = ::connectDiscord,

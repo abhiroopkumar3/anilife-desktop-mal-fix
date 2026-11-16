@@ -5,6 +5,9 @@ import me.enivzoy.anilife.core.model.AnimeDetail
 import me.enivzoy.anilife.core.model.Home
 import me.enivzoy.anilife.core.model.SearchPage
 import me.enivzoy.anilife.core.net.AniListClient
+import me.enivzoy.anilife.core.net.AniListException
+import me.enivzoy.anilife.core.net.MAX_LOOKUP_BATCH
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -15,14 +18,17 @@ import kotlinx.coroutines.sync.withLock
 
 
 
+/** Titles found by a bulk lookup, and how many batches could not be fetched at all. */
+data class CardLookup(val cards: List<AnimeCard>, val failedBatches: Int)
+
 class AniListRepository(
     private val client: AniListClient = AniListClient(),
     titleLanguage: String = "english",
     private val videoProviders: AnimeVideoProviders = AnimeVideoProviders(),
+    val library: LocalLibraryStore = LocalLibraryStore(),
 ) {
     private val homeMutex = Mutex()
     private val homeSnapshot = HomeSnapshotStore()
-    val library = LocalLibraryStore()
     private val downloads = LocalDownloadsStore()
 
     val libraryEntries: StateFlow<List<AnimeCard>> = library.entries
@@ -112,6 +118,55 @@ class AniListRepository(
             }
         }
         return titles.mapKeys { it.key.toDouble() }
+    }
+
+    /**
+     * Full details for many titles at once, by AniList id or by MyAnimeList id, 50 to a request.
+     *
+     * With [failFast] a batch that cannot be fetched throws and nothing is returned, so a caller
+     * that must not half-finish (an import) can leave its data untouched. Without it the batch is
+     * counted in [CardLookup.failedBatches] and the rest carry on, for callers that can fall back to
+     * what they already know (a restore, which must still work offline).
+     */
+    suspend fun lookupCards(
+        ids: Collection<Long>,
+        byMalId: Boolean = false,
+        failFast: Boolean = true,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+    ): CardLookup {
+        val batches = ids.distinct().chunked(MAX_LOOKUP_BATCH)
+        val found = mutableListOf<AnimeCard>()
+        var failed = 0
+        batches.forEachIndexed { index, batch ->
+            onProgress(index, batches.size)
+            try {
+                found += withRateLimitRetry {
+                    if (byMalId) client.cardsByMalIds(batch) else client.cardsByIds(batch)
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (failFast) throw failure
+                System.err.println("Bulk title lookup failed for ${batch.size} titles: ${failure.message}")
+                failed++
+            }
+        }
+        onProgress(batches.size, batches.size)
+        return CardLookup(found, failed)
+    }
+
+    private suspend fun <T> withRateLimitRetry(block: suspend () -> T): T {
+        var attempt = 0
+        while (true) {
+            try {
+                return block()
+            } catch (failure: AniListException) {
+                // AniList allows about 90 requests a minute; a long list can brush against that.
+                if (!failure.message.contains("rate limit", ignoreCase = true) || attempt >= 2) throw failure
+                attempt++
+                delay(30_000)
+            }
+        }
     }
 
     fun addToLibrary(anime: AnimeCard) = library.add(anime)

@@ -29,6 +29,20 @@ class LocalLibraryStore(private val file: File = libraryFile()) {
         mutableEntries.value = updated
     }
 
+    /**
+     * Bulk add from a backup or a MyAnimeList import: titles already saved are left exactly as they
+     * are, and only the ones that were not here are added. Returns how many were new.
+     */
+    fun addNew(anime: List<AnimeCard>): Int = synchronized(lock) {
+        val existing = mutableEntries.value.mapTo(mutableSetOf()) { it.id }
+        val fresh = anime.distinctBy { it.id }.filter { it.id !in existing }
+        if (fresh.isEmpty()) return@synchronized 0
+        val updated = (mutableEntries.value + fresh).sortedBy { it.title.lowercase() }
+        writeEntries(updated)
+        mutableEntries.value = updated
+        fresh.size
+    }
+
     fun setTitleLanguage(language: String) = synchronized(lock) {
         val updated = mutableEntries.value
             .map { anime -> anime.withTitlePreference(language) }

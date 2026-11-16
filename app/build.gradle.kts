@@ -51,7 +51,7 @@ dependencies {
 }
 
 // Overridable from CI: -PappVersion=1.2.3 -Pportable=true
-val defaultVersion = "1.0.7"
+val defaultVersion = "1.0.8"
 val appVersion = providers.gradleProperty("appVersion").orNull ?: defaultVersion
 val portableBuild = providers.gradleProperty("portable").orNull == "true"
 val generatedVersionResources = layout.buildDirectory.dir("generated/versionResources")

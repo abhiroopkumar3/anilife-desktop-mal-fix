@@ -44,6 +44,24 @@ class ContinueStore(private val file: File = continueFile()) {
         }
     }
 
+    /**
+     * Merge rows from a backup, keeping their own timestamps: one row per anime, the most recently
+     * watched winning, capped like the live list. Returns how many rows changed or arrived.
+     */
+    fun restore(incoming: List<ContinueEntry>): Int = synchronized(lock) {
+        if (incoming.isEmpty()) return@synchronized 0
+        val before = mutableEntries.value
+        val merged = (before + incoming)
+            .sortedByDescending { it.updatedAt }
+            .distinctBy { it.anime.id }
+            .take(24)
+        if (merged == before) return@synchronized 0
+        writeEntries(merged)
+        mutableEntries.value = merged
+        val previous = before.associateBy { it.anime.id }
+        merged.count { it != previous[it.anime.id] }
+    }
+
     fun remove(id: Long) = synchronized(lock) {
         val updated = mutableEntries.value.filterNot { it.anime.id == id }
         if (updated.size != mutableEntries.value.size) {

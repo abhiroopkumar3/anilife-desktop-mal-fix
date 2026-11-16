@@ -36,6 +36,9 @@ private const val USER_AGENT = "AniLife/1.0 (+https://github.com/sAniLife)"
  
 private const val NEWEST_AIRED_BUFFER_SECONDS = 15 * 60L
 
+/** AniList caps a page at 50 items, which is also the most a by-id lookup can carry. */
+const val MAX_LOOKUP_BATCH = 50
+
  
 private const val CARD_FIELDS = """
   id idMal isAdult format status episodes averageScore season seasonYear genres
@@ -383,6 +386,34 @@ class AniListClient(
             ?.get("media")
             .asArray()
             ?.firstNotNullOfOrNull { (it as? JsonObject)?.let { media -> parseCard(media, titleLanguage) } }
+    }
+
+    /** Up to [MAX_LOOKUP_BATCH] titles by AniList id, in no particular order. Unknown ids are simply absent. */
+    suspend fun cardsByIds(ids: List<Long>): List<AnimeCard> = lookupCards("id_in", ids)
+
+    /** Up to [MAX_LOOKUP_BATCH] titles by MyAnimeList id, in no particular order. Unknown ids are simply absent. */
+    suspend fun cardsByMalIds(malIds: List<Long>): List<AnimeCard> = lookupCards("idMal_in", malIds)
+
+    private suspend fun lookupCards(filter: String, ids: List<Long>): List<AnimeCard> {
+        val batch = ids.distinct()
+        if (batch.isEmpty()) return emptyList()
+        require(batch.size <= MAX_LOOKUP_BATCH) { "At most $MAX_LOOKUP_BATCH titles can be looked up at once." }
+        val query = """
+            query (${'$'}ids: [Int]) {
+              Page(page: 1, perPage: $MAX_LOOKUP_BATCH) {
+                media($filter: ${'$'}ids, type: ANIME) { $CARD_FIELDS }
+              }
+            }
+        """.trimIndent()
+        val data = execute(
+            query,
+            buildJsonObject { put("ids", JsonArray(batch.map { JsonPrimitive(it) })) },
+        )
+        return (data["Page"] as? JsonObject)
+            ?.get("media")
+            .asArray()
+            ?.mapNotNull { (it as? JsonObject)?.let { media -> parseCard(media, titleLanguage) } }
+            .orEmpty()
     }
 
     private suspend fun execute(query: String, variables: JsonObject = buildJsonObject { }): JsonObject {

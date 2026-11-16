@@ -9,6 +9,7 @@
 | --- | --- |
 | **MyAnimeList sign-in uses the `plain` PKCE method.** | MAL only supports `plain`. The original sent `S256`, so the token step failed with "invalid grant" after a successful browser login. Sent upstream as [PR #2](https://github.com/anilifecommunity/kotlindesktop/pull/2). |
 | **The in-app update check reads this fork's releases**, not the original's. | So installs from here update from here. See `Updater.kt`. |
+| **Settings, Data has backup and MyAnimeList files**: Back up to a file, Restore from a backup, Export MyAnimeList XML, Import MyAnimeList XML. | Matches the Android app's Data screen, and uses the same file formats, so you can move your list between the phone and this PC by hand. The backup carries saved anime, Continue Watching and the settings both apps share. See `AppBackup.kt`, `MalTransfer.kt` and `DataTransfer.kt`. |
 
 Everything else is the original code, kept up to date by the sync below.
 
