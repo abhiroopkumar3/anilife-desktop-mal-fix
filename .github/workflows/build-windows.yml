@@ -11,12 +11,13 @@ name: Build Windows installers
 #   - "Sync from upstream" starts it itself when the version has no release yet. That sync pushes with
 #     the built-in token, and GitHub does not start workflows from such pushes, so the two never both
 #     fire for the same change. Do not switch the sync to a personal access token without revisiting this.
-#   - You press "Run workflow". Untick "Publish" to only get the installers as a downloadable
-#     artifact, without a release. With "Publish" ticked the version must not have a release yet.
+#   - You press "Run workflow". This always builds, as often as you like, even for a version that
+#     already has a release. Untick "Publish" to only get the installers as a downloadable artifact.
+#     With "Publish" ticked the release workflow decides: it leaves an existing release alone.
 #
 # Version boxes on "Run workflow": Base and Revision are optional and count only when "Publish" is
 # ticked. Left empty, the version comes from fork-version.properties. Typed, they are checked
-# (base 1.2.3, revision a whole number), refused if that release already exists, and written back
+# (base 1.2.3, revision a whole number) and written back
 # to fork-version.properties on main once the build succeeds, so the file always names the newest
 # release. That commit uses the built-in token, so it does not start another build.
 
@@ -95,15 +96,6 @@ jobs:
           fi
           version="$base-AK$revision"
           skip=false
-
-          # A run that publishes must name a new version: never touch an existing release by accident.
-          if [ "$EVENT" = "workflow_dispatch" ] && [ "$PUBLISH" = "true" ]; then
-            if out=$(gh api "repos/${{ github.repository }}/releases/tags/v$version" 2>&1); then
-              echo "::error::Release v$version already exists. Type a higher revision in the form, or untick Publish for a test build."; exit 1
-            elif ! echo "$out" | grep -q "Not Found"; then
-              echo "Could not check releases: $out"; exit 1
-            fi
-          fi
           if [ "${{ github.event_name }}" = "push" ]; then
             if out=$(gh api "repos/${{ github.repository }}/releases/tags/v$version" 2>&1); then
               skip=true
@@ -266,8 +258,13 @@ jobs:
             ForEach-Object { $_ -replace '^base=.*$', "base=$env:NEW_BASE" -replace '^revision=.*$', "revision=$env:NEW_REVISION" } |
             Set-Content fork-version.properties
           git add fork-version.properties
-          git commit -m "Set version to $env:NEW_BASE-AK$env:NEW_REVISION from the build form"
-          git push origin HEAD:main
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "Set version to $env:NEW_BASE-AK$env:NEW_REVISION from the build form"
+            git push origin HEAD:main
+          } else {
+            "fork-version.properties already holds $env:NEW_BASE-AK$env:NEW_REVISION."
+          }
 
       - name: Start the release workflow
         if: inputs.publish != false
