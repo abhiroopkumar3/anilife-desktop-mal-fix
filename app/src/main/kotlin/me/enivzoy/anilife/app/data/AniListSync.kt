@@ -164,6 +164,20 @@ object AniListSync {
             )
         }
 
+    /** Mirror the Save button: see [aniListSavedPush]. Never changes an entry that has been moved on. */
+    suspend fun syncSaved(anime: AnimeCard, saved: Boolean) = mutex.withLock {
+        val (account, auth) = requireConnected()
+        val current = api.entry(auth.accessToken, account.id, anime.id)
+        when (aniListSavedPush(saved, current?.status?.apiValue)) {
+            SavedPush.ADD_PLANNING -> saveRemoteEntry(account, auth, anime, null, AniListListStatus.PLANNING, 0, 0.0)
+            SavedPush.DELETE -> {
+                if (current != null && api.delete(auth.accessToken, current.entryId)) replaceEntry(null, anime.id)
+                else error("AniList did not confirm the list entry deletion.")
+            }
+            else -> Unit
+        }
+    }
+
     suspend fun updateEntry(
         entry: AniListListEntry,
         status: AniListListStatus,

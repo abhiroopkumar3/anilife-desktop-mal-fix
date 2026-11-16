@@ -15,9 +15,11 @@ import java.util.Properties
  * [hydrateFromAccount]; this file only reads, writes and calls the services.
  */
 object AccountLibrary {
+    private const val MAX_RETRIES_PER_RUN = 40
     private val mutex = Mutex()
     private val snapshots = StatusSnapshotStore()
     private val idMap = MalIdMap()
+    private val pending = PendingSavedStore()
 
     @Volatile var repository: AniListRepository? = null
     @Volatile var syncSavedEnabled: () -> Boolean = { true }
@@ -73,6 +75,39 @@ object AccountLibrary {
         snapshots.write(key, result.snapshot)
     }
 
+    private suspend fun pushOne(anime: me.enivzoy.anilife.core.model.AnimeCard, saved: Boolean) {
+        when {
+            AniListSync.user.value != null -> AniListSync.syncSaved(anime, saved)
+            MyAnimeListSync.user.value != null -> anime.malId?.let { MyAnimeListSync.syncSaved(it, saved) }
+        }
+    }
+
+    /** A save or unsave happened here. Catalogue-native (negative) ids never go to a list service. */
+    suspend fun saveToggled(anime: me.enivzoy.anilife.core.model.AnimeCard, saved: Boolean) {
+        if (anime.id <= 0 || !syncSavedEnabled() || accountKey() == null) return
+        mutex.withLock {
+            runCatching { pushOne(anime, saved) }
+                .onSuccess { pending.settle(setOf(anime.id)) }
+                .onFailure { pending.add(setOf(anime.id)) }
+        }
+    }
+
+    /** Re-send saves whose last push failed, each as what the PC says now. Cheap when nothing is owed. */
+    suspend fun retryPending() = mutex.withLock {
+        val repo = repository ?: return@withLock
+        if (!syncSavedEnabled() || accountKey() == null) return@withLock
+        val batch = pending.ids().take(MAX_RETRIES_PER_RUN)
+        if (batch.isEmpty()) return@withLock
+        val saves = repo.library.saves.value.associateBy { it.anime.id }
+        val settled = mutableSetOf<Long>()
+        batch.forEach { id ->
+            val card = saves[id]?.anime ?: pending.card(id)
+            if (card == null) { settled += id; return@forEach }
+            runCatching { pushOne(card, saves.containsKey(id)) }.onSuccess { settled += id }
+        }
+        pending.settle(settled)
+    }
+
     /** Push saved titles the account lacks, as Planning. Does nothing while the setting is off. */
     suspend fun pushSaved() = mutex.withLock {
         val repo = repository ?: return@withLock
@@ -83,18 +118,14 @@ object AccountLibrary {
             .map { it.anime }
             .filter { it.id > 0 && it.id !in known }
             .forEach { anime ->
-                runCatching {
-                    when {
-                        AniListSync.user.value != null -> AniListSync.addToList(anime, AniListListStatus.PLANNING)
-                        MyAnimeListSync.user.value != null -> anime.malId?.let { MyAnimeListSync.addPlanned(it) }
-                    }
-                }
+                runCatching { pushOne(anime, true) }.onFailure { pending.add(setOf(anime.id), anime) }
             }
     }
 
     /** A new account was adopted: forget the old snapshot, read the new list, then push saves up. */
     suspend fun adopted() {
         accountKey()?.let(snapshots::clear)
+        pending.clear()
         refresh()
         pushSaved()
         refresh()
@@ -128,6 +159,37 @@ class StatusSnapshotStore(private val file: File = File(directory(), "account-sn
 
     private companion object {
         fun directory(): File {
+            val base = System.getenv("LOCALAPPDATA")?.takeIf(String::isNotBlank)?.let(::File)
+                ?: File(System.getProperty("user.home"), ".local/share")
+            return File(base, "AniLife")
+        }
+    }
+}
+
+/** Saves the account has not confirmed yet, kept across restarts so they are retried on launch. */
+class PendingSavedStore(private val file: File = File(dir(), "pending-saved-sync.properties")) {
+    private val cards = mutableMapOf<Long, me.enivzoy.anilife.core.model.AnimeCard>()
+
+    @Synchronized fun ids(): List<Long> = load().stringPropertyNames().mapNotNull { it.toLongOrNull() }.sorted()
+    @Synchronized fun card(id: Long) = cards[id]
+    @Synchronized fun add(ids: Set<Long>, card: me.enivzoy.anilife.core.model.AnimeCard? = null) {
+        if (card != null) cards[card.id] = card
+        val p = load(); ids.forEach { p.setProperty(it.toString(), "1") }; save(p)
+    }
+    @Synchronized fun settle(ids: Set<Long>) {
+        if (ids.isEmpty()) return
+        val p = load(); ids.forEach { p.remove(it.toString()); cards.remove(it) }; save(p)
+    }
+    @Synchronized fun clear() { cards.clear(); file.delete() }
+
+    private fun load() = Properties().apply { if (file.isFile) file.inputStream().use(::load) }
+    private fun save(p: Properties) {
+        file.parentFile?.mkdirs()
+        file.outputStream().use { p.store(it, "AniLife pending saved sync") }
+    }
+
+    private companion object {
+        fun dir(): File {
             val base = System.getenv("LOCALAPPDATA")?.takeIf(String::isNotBlank)?.let(::File)
                 ?: File(System.getProperty("user.home"), ".local/share")
             return File(base, "AniLife")

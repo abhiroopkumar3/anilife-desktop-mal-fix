@@ -192,7 +192,11 @@ fun AniLifeApp(
         MyAnimeListSync.restore()
         AccountLibrary.repository = repository
         AccountLibrary.syncSavedEnabled = { settingsStore.settings.value.syncSavedToAccount }
+        val pushScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+        repository.onSaveChanged = { anime, saved -> pushScope.launch { AccountLibrary.saveToggled(anime, saved) } }
+        repository.onBulkSaved = { pushScope.launch { AccountLibrary.pushSaved() } }
         AccountAdoption.settleAfterRestore()
+        AccountLibrary.retryPending()
         DiscordOAuth.restore()
     }
     LaunchedEffect(settings.checkUpdatesOnLaunch) {

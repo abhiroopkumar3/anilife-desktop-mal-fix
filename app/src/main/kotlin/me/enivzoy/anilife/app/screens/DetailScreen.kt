@@ -125,46 +125,23 @@ fun DetailScreen(
                     providers = providers,
                     onOpen = onOpen,
                     onWatch = { episode -> onWatch(current.value, episode) },
-                    inLibrary = if (aniListUser != null) {
-                        aniListEntries.any { it.anime.id == current.value.id }
-                    } else {
-                        library.any { it.id == current.value.id }
-                    },
-                    libraryUsesAniList = aniListUser != null,
+                    inLibrary = library.any { it.id == current.value.id },
+                    libraryUsesAniList = false,
                     libraryActionError = aniListActionError,
                     libraryActionPending = aniListActionPending,
                     onEditAniListEntry = if (remoteEntry != null && aniListUser != null) {
                         ({ showEntryEditor = true })
                     } else null,
                     onToggleLibrary = {
-                    val remoteEntry = aniListEntries.firstOrNull { it.anime.id == current.value.id }
-                    if (aniListUser != null) {
-                        scope.launch {
-                            aniListActionPending = true
-                            aniListActionError = null
-                            try {
-                                if (remoteEntry != null) AniListSync.deleteEntry(remoteEntry)
-                                else AniListSync.addToList(current.value.toCard())
-                            } catch (cancelled: CancellationException) {
-                                throw cancelled
-                            } catch (failure: Throwable) {
-                                aniListActionError = failure.message ?: "Couldn't update your AniList list."
-                            } finally {
-                                aniListActionPending = false
-                            }
+                    try {
+                        if (library.any { it.id == current.value.id }) {
+                            repository.removeFromLibrary(current.value.id)
+                        } else {
+                            repository.addToLibrary(current.value.toCard())
                         }
                         null
-                    } else {
-                        try {
-                            if (library.any { it.id == current.value.id }) {
-                                repository.removeFromLibrary(current.value.id)
-                            } else {
-                                repository.addToLibrary(current.value.toCard())
-                            }
-                            null
-                        } catch (error: IOException) {
-                            error.message ?: "Check that AniLife can write to your app data folder."
-                        }
+                    } catch (error: IOException) {
+                        error.message ?: "Check that AniLife can write to your app data folder."
                     }
                 },
             )

@@ -160,6 +160,30 @@ object MyAnimeListSync {
         requestJson(request)
     }
 
+    /** Mirror the Save button on MAL: see [malSavedPush]. */
+    suspend fun syncSaved(malId: Long, saved: Boolean) = mutex.withLock {
+        val token = accessToken(tokens ?: error("Connect a MyAnimeList account first."))
+        val get = HttpRequest.newBuilder(URI.create("$API/anime/$malId?fields=my_list_status"))
+            .header("Authorization", "Bearer $token").GET().build()
+        val status = requestJson(get)["my_list_status"]?.jsonObject?.get("status")?.jsonPrimitive?.contentOrNull
+        when (malSavedPush(saved, status)) {
+            SavedPush.ADD_PLANNING -> {
+                val patch = HttpRequest.newBuilder(URI.create("$API/anime/$malId/my_list_status"))
+                    .header("Authorization", "Bearer $token")
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .method("PATCH", HttpRequest.BodyPublishers.ofString("status=plan_to_watch")).build()
+                requestJson(patch)
+            }
+            SavedPush.DELETE -> {
+                val delete = HttpRequest.newBuilder(URI.create("$API/anime/$malId/my_list_status"))
+                    .header("Authorization", "Bearer $token").DELETE().build()
+                val response = withContext(Dispatchers.IO) { http.send(delete, HttpResponse.BodyHandlers.ofString()) }
+                check(response.statusCode() in 200..299) { "MyAnimeList: delete failed (HTTP ${response.statusCode()})." }
+            }
+            else -> Unit
+        }
+    }
+
     suspend fun syncCompletedEpisode(malId: Long, watched: Int) = mutex.withLock {
         val current = tokens ?: return@withLock
         val token = accessToken(current)
