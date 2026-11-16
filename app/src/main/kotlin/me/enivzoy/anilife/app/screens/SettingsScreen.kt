@@ -91,6 +91,9 @@ import androidx.compose.ui.text.platform.Font
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import me.enivzoy.anilife.app.data.PosterElement
+import me.enivzoy.anilife.app.data.posterElementNames
+import me.enivzoy.anilife.app.data.posterElementsOff
 import me.enivzoy.anilife.app.data.AppSettings
 import me.enivzoy.anilife.app.data.AniListRepository
 import me.enivzoy.anilife.app.data.AppBackup
@@ -1301,17 +1304,6 @@ private fun DataSettings(
             "Replaces the shared settings; adds saved anime and history to this PC. Works with files from the Android app.",
         ) { SettingsButton(text = "Restore", enabled = busy == null, onClick = ::chooseBackup) }
     }
-    SettingsSection("Saved titles and your account") {
-        SettingsRow(
-            "Add saved titles to my account",
-            "After a restore or an import, titles saved here that your signed-in MyAnimeList or AniList " +
-                "account does not have are added to its Plan to Watch. Titles already on your list are never changed.",
-        ) {
-            SettingsSwitch(settings.syncSavedToAccount) { enabled ->
-                onSettingsChange { it.copy(syncSavedToAccount = enabled) }
-            }
-        }
-    }
     SettingsSection("MyAnimeList files") {
         SettingsRow(
             "Export MyAnimeList XML",
@@ -1405,7 +1397,28 @@ private fun AppSettingsPage(
     checkingForUpdates: Boolean,
     onCheckForUpdates: () -> Unit,
 ) {
+    SettingsSection("Library posters") {
+        PosterElement.entries.forEach { element ->
+            SettingsRow(element.label, "Show this on each poster on the Library page.") {
+                val off = posterElementsOff(settings.hiddenPosterElements)
+                SettingsSwitch(element !in off) { shown ->
+                    onSettingsChange {
+                        val now = posterElementsOff(it.hiddenPosterElements)
+                        it.copy(hiddenPosterElements = posterElementNames(if (shown) now - element else now + element))
+                    }
+                }
+            }
+        }
+    }
     SettingsSection("Updates") {
+        SettingsRow(
+            "Sync saved titles with your account",
+            "Add your account's Plan to watch titles to your saved list, and send saved titles to your account as Plan to watch. This includes titles saved by a restore or an import; titles already on your list are never changed.",
+        ) {
+            SettingsSwitch(settings.syncSavedToAccount) { enabled ->
+                onSettingsChange { it.copy(syncSavedToAccount = enabled) }
+            }
+        }
         SettingsRow(
             "Check for updates on launch",
             "Look for a newer AniLife release when the app starts. You choose whether to install it.",

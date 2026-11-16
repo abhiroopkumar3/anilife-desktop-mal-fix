@@ -34,6 +34,10 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -363,3 +367,16 @@ object AniLifeIcon {
     }
 }
 
+
+/** Runs [onClick] on a right-click, leaving the primary button to whatever else is on the element. */
+fun Modifier.onRightClick(onClick: () -> Unit): Modifier = pointerInput(Unit) {
+    awaitEachGesture {
+        val event = awaitPointerEvent(PointerEventPass.Initial)
+        if (event.buttons.isSecondaryPressed) {
+            onClick()
+            do {
+                val follow = awaitPointerEvent(PointerEventPass.Initial)
+            } while (follow.changes.any { it.pressed })
+        }
+    }
+}

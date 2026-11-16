@@ -38,13 +38,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import me.enivzoy.anilife.app.data.AccountAdoption
 import me.enivzoy.anilife.app.data.AniListRepository
+import me.enivzoy.anilife.app.data.AniListSync
+import me.enivzoy.anilife.app.data.WatchActivityInstance
+import me.enivzoy.anilife.app.data.mergedActivity
+import me.enivzoy.anilife.app.ui.ActivityHeatmap
 import me.enivzoy.anilife.app.data.MyAnimeListEntry
 import me.enivzoy.anilife.app.data.MyAnimeListSync
 import me.enivzoy.anilife.app.ui.AniLifeColors
 
 @Composable
-fun MyAnimeListScreen(repository: AniListRepository) {
+fun MyAnimeListScreen(
+    repository: AniListRepository,
+    settings: me.enivzoy.anilife.app.data.AppSettings,
+    onSettingsChange: ((me.enivzoy.anilife.app.data.AppSettings) -> me.enivzoy.anilife.app.data.AppSettings) -> Unit,
+) {
+    var showTags by remember { mutableStateOf(false) }
     val user by MyAnimeListSync.user.collectAsState()
     val configured by MyAnimeListSync.configured.collectAsState()
     val scope = rememberCoroutineScope()
@@ -95,7 +105,7 @@ fun MyAnimeListScreen(repository: AniListRepository) {
                             loading = true
                             error = null
                             try {
-                                MyAnimeListSync.connect()
+                                AccountAdoption.connectMyAnimeList()
                                 refreshMalList()
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
@@ -120,6 +130,7 @@ fun MyAnimeListScreen(repository: AniListRepository) {
                         Text(user?.name.orEmpty(), color = AniLifeColors.Foreground, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                         Text("Connected to MyAnimeList", color = AniLifeColors.MutedForeground, fontSize = 12.sp)
                     }
+                    OutlinedButton(onClick = { showTags = true }) { Text("Tags shown as lists") }
                     OutlinedButton(onClick = { scope.launch { refreshMalList() } }, enabled = !loading) {
                         Icon(Icons.Rounded.Refresh, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
@@ -137,8 +148,29 @@ fun MyAnimeListScreen(repository: AniListRepository) {
             error?.let { Text(it, color = AniLifeColors.Destructive, fontSize = 12.sp) }
         }
 
+        if (showTags) {
+            MalTagsDialog(
+                settings = settings,
+                onUpdate = { names ->
+                    onSettingsChange { it.copy(hiddenMalTags = names) }
+                    scope.launch { me.enivzoy.anilife.app.data.AccountLibrary.refresh() }
+                },
+                onDismiss = { showTags = false },
+            )
+        }
+
         Spacer(Modifier.height(18.dp))
         AniListAccountSettings(repository)
+
+        val aniListUser by AniListSync.user.collectAsState()
+        val aniListActivity by AniListSync.activity.collectAsState()
+        val localActivity by WatchActivityInstance.days.collectAsState()
+        LaunchedEffect(aniListUser?.id) { if (aniListUser != null) AniListSync.refreshActivity() }
+        if (aniListUser != null || user != null) {
+            Spacer(Modifier.height(18.dp))
+            val merged = remember(localActivity, aniListActivity) { mergedActivity(localActivity, aniListActivity) }
+            ActivityHeatmap(merged, fromAccount = aniListUser != null)
+        }
 
         if (user != null) {
             Spacer(Modifier.height(18.dp))

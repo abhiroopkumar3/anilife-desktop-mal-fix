@@ -74,9 +74,13 @@ data class AppSettings(
     val volume: Int = 100,
     val subtitleScale: Float = 1f,
     val aniListSubmitPercent: Int = 80,
-    /** Add titles saved by a restore or an import to the signed-in account's Plan to Watch. */
+    /** Keep saved titles and the account's Plan to Watch in step, and add titles saved by a restore or an import to it. */
     val syncSavedToAccount: Boolean = true,
     val checkUpdatesOnLaunch: Boolean = true,
+    /** Poster details switched off on the Library page, as [PosterElement] names. */
+    val hiddenPosterElements: String = "",
+    /** MyAnimeList tags kept off the Library as lists, comma-separated (Android `hiddenMalTags`). */
+    val hiddenMalTags: String = "",
     val captionFont: String = "sans-serif",
     val captionFontFile: String = "",
     val buttonColor: String = "#87D66A",
@@ -160,6 +164,8 @@ class AppSettingsStore(private val file: File = settingsFile()) {
             volume = properties.getProperty("volume", "100").toIntOrNull() ?: 100,
             subtitleScale = properties.getProperty("subtitleScale", "1.0").toFloatOrNull() ?: 1f,
             checkUpdatesOnLaunch = properties.getProperty("checkUpdatesOnLaunch", "true").toBooleanStrictOrNull() ?: true,
+            hiddenPosterElements = properties.getProperty("hiddenPosterElements", ""),
+            hiddenMalTags = properties.getProperty("hiddenMalTags", ""),
             captionFont = properties.getProperty("captionFont", "sans-serif"),
             captionFontFile = properties.getProperty("captionFontFile", ""),
             buttonColor = properties.getProperty("buttonColor", "#87D66A"),
@@ -215,6 +221,8 @@ class AppSettingsStore(private val file: File = settingsFile()) {
             setProperty("volume", settings.volume.toString())
             setProperty("subtitleScale", settings.subtitleScale.toString())
             setProperty("checkUpdatesOnLaunch", settings.checkUpdatesOnLaunch.toString())
+            setProperty("hiddenPosterElements", settings.hiddenPosterElements)
+            setProperty("hiddenMalTags", settings.hiddenMalTags)
             setProperty("captionFont", settings.captionFont)
             setProperty("captionFontFile", settings.captionFontFile)
             setProperty("buttonColor", settings.buttonColor)

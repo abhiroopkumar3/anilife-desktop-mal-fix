@@ -1,7 +1,6 @@
 ﻿package me.enivzoy.anilife.app.data
 
 import me.enivzoy.anilife.core.model.AnimeCard
-import me.enivzoy.anilife.core.model.NextAiring
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
@@ -14,8 +13,20 @@ import java.util.Properties
  
 class LocalLibraryStore(private val file: File = libraryFile()) {
     private val lock = Any()
+    private val savedAt: MutableMap<Long, Long> = readSavedAt().toMutableMap()
     private val mutableEntries = MutableStateFlow(readEntries())
     val entries = mutableEntries.asStateFlow()
+    private val mutableSaves = MutableStateFlow(currentSaves())
+    /** The same titles with the time each was saved (epoch milliseconds, 0 for saves made before dates were kept). */
+    val saves = mutableSaves.asStateFlow()
+
+    private fun currentSaves() = mutableEntries.value.map { LocalSave(it, savedAt[it.id] ?: 0L) }
+    private fun publish(updated: List<AnimeCard>) {
+        savedAt.keys.retainAll(updated.mapTo(mutableSetOf()) { it.id })
+        writeEntries(updated)
+        mutableEntries.value = updated
+        mutableSaves.value = currentSaves()
+    }
 
     fun add(anime: AnimeCard) = synchronized(lock) {
         addAll(listOf(anime))
@@ -23,10 +34,21 @@ class LocalLibraryStore(private val file: File = libraryFile()) {
 
     fun addAll(anime: List<AnimeCard>) = synchronized(lock) {
         if (anime.isEmpty()) return@synchronized
+        val now = System.currentTimeMillis()
+        val fresh = anime.filter { new -> mutableEntries.value.none { it.id == new.id } }
+        fresh.forEach { savedAt[it.id] = now }
         val updated = (mutableEntries.value.filterNot { existing -> anime.any { it.id == existing.id } } + anime)
             .sortedBy { it.title.lowercase() }
-        writeEntries(updated)
-        mutableEntries.value = updated
+        publish(updated)
+    }
+
+    /** Replace the saves with [merged], keeping each title's own date. Used by the account sync. */
+    fun replaceAll(merged: List<LocalSave>) = synchronized(lock) {
+        merged.forEach { savedAt[it.anime.id] = it.addedAt }
+        val updated = merged.map { it.anime }.sortedBy { it.title.lowercase() }
+        if (updated != mutableEntries.value || merged.any { savedAt[it.anime.id] != currentSaves().firstOrNull { s -> s.anime.id == it.anime.id }?.addedAt }) {
+            publish(updated)
+        }
     }
 
     /**
@@ -48,8 +70,7 @@ class LocalLibraryStore(private val file: File = libraryFile()) {
             .map { anime -> anime.withTitlePreference(language) }
             .sortedBy { it.title.lowercase() }
         if (updated != mutableEntries.value) {
-            writeEntries(updated)
-            mutableEntries.value = updated
+            publish(updated)
         }
     }
 
@@ -58,9 +79,21 @@ class LocalLibraryStore(private val file: File = libraryFile()) {
     fun remove(id: Long) = synchronized(lock) {
         val updated = mutableEntries.value.filterNot { it.id == id }
         if (updated.size != mutableEntries.value.size) {
-            writeEntries(updated)
-            mutableEntries.value = updated
+            publish(updated)
         }
+    }
+
+    private fun readSavedAt(): Map<Long, Long> {
+        if (!file.isFile) return emptyMap()
+        val properties = Properties()
+        file.inputStream().use(properties::load)
+        return properties.stringPropertyNames()
+            .filter { it.startsWith("anime.") && it.endsWith(".addedAt") }
+            .mapNotNull { key ->
+                val id = key.removePrefix("anime.").removeSuffix(".addedAt").toLongOrNull() ?: return@mapNotNull null
+                val at = properties.getProperty(key)?.toLongOrNull() ?: return@mapNotNull null
+                id to at
+            }.toMap()
     }
 
     private fun readEntries(): List<AnimeCard> {
@@ -73,36 +106,7 @@ class LocalLibraryStore(private val file: File = libraryFile()) {
             .mapNotNull { titleKey ->
                 val prefix = titleKey.removeSuffix("title")
                 val id = prefix.removePrefix("anime.").removeSuffix(".").toLongOrNull() ?: return@mapNotNull null
-                val title = properties.getProperty(titleKey)?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-                fun value(name: String) = properties.getProperty("${prefix}${name}")?.takeIf(String::isNotBlank)
-                fun intValue(name: String) = value(name)?.toIntOrNull()
-                fun doubleValue(name: String) = value(name)?.toDoubleOrNull()
-                val airingEpisode = intValue("airingEpisode")
-                val airingAt = value("airingAt")?.toLongOrNull()
-                AnimeCard(
-                    id = id,
-                    title = title,
-                    titleRomaji = value("titleRomaji"),
-                    titleEnglish = value("titleEnglish"),
-                    titleNative = value("titleNative"),
-                    malId = value("malId")?.toLongOrNull(),
-                    cover = value("cover"),
-                    color = value("color"),
-                    banner = value("banner"),
-                    format = value("format"),
-                    status = value("status"),
-                    episodes = intValue("episodes"),
-                    score = doubleValue("score"),
-                    year = intValue("year"),
-                    season = value("season"),
-                    genres = value("genres")?.split('|')?.filter(String::isNotBlank).orEmpty(),
-                    nextAiring = if (airingEpisode != null && airingAt != null) {
-                        NextAiring(airingEpisode, airingAt)
-                    } else {
-                        null
-                    },
-                    isAdult = value("isAdult")?.toBooleanStrictOrNull() ?: false,
-                )
+                properties.readCard(prefix, id)
             }
             .sortedBy { it.title.lowercase() }
             .toList()
@@ -112,27 +116,11 @@ class LocalLibraryStore(private val file: File = libraryFile()) {
         val properties = Properties()
         entries.forEach { anime ->
             val prefix = "anime.${anime.id}."
+            properties.putCard(prefix, anime)
             fun put(name: String, value: Any?) {
                 if (value != null) properties.setProperty(prefix + name, value.toString())
             }
-            put("title", anime.title)
-            put("titleRomaji", anime.titleRomaji)
-            put("titleEnglish", anime.titleEnglish)
-            put("titleNative", anime.titleNative)
-            put("malId", anime.malId)
-            put("cover", anime.cover)
-            put("color", anime.color)
-            put("banner", anime.banner)
-            put("format", anime.format)
-            put("status", anime.status)
-            put("episodes", anime.episodes)
-            put("score", anime.score)
-            put("year", anime.year)
-            put("season", anime.season)
-            put("genres", anime.genres.joinToString("|"))
-            put("airingEpisode", anime.nextAiring?.episode)
-            put("airingAt", anime.nextAiring?.airingAt)
-            put("isAdult", anime.isAdult)
+            savedAt[anime.id]?.takeIf { it > 0 }?.let { put("addedAt", it) }
         }
 
         file.parentFile?.let { Files.createDirectories(it.toPath()) }

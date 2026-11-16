@@ -169,11 +169,23 @@ class AniListRepository(
         }
     }
 
-    fun addToLibrary(anime: AnimeCard) = library.add(anime)
+    suspend fun cardsByIds(ids: List<Long>): List<AnimeCard> = client.cardsByIds(ids)
 
-    fun addToLibrary(anime: List<AnimeCard>) = library.addAll(anime)
+    suspend fun cardsByMalIds(malIds: List<Long>): List<AnimeCard> = client.cardsByMalIds(malIds)
 
-    fun removeFromLibrary(id: Long) = library.remove(id)
+    /** Told about every save and unsave so the signed-in account can follow. Set by the app shell. */
+    @Volatile var onSaveChanged: (AnimeCard, Boolean) -> Unit = { _, _ -> }
+    @Volatile var onBulkSaved: () -> Unit = {}
+
+    fun addToLibrary(anime: AnimeCard) { library.add(anime); onSaveChanged(anime, true) }
+
+    fun addToLibrary(anime: List<AnimeCard>) { library.addAll(anime); if (anime.isNotEmpty()) onBulkSaved() }
+
+    fun removeFromLibrary(id: Long) {
+        val card = library.entries.value.firstOrNull { it.id == id }
+        library.remove(id)
+        if (card != null) onSaveChanged(card, false)
+    }
 
     fun addLocalEpisodes(episodes: List<LocalEpisode>) = downloads.addAll(episodes)
 

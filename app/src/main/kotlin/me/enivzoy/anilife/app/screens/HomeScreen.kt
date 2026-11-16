@@ -46,6 +46,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import me.enivzoy.anilife.app.ui.onRightClick
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -121,6 +122,10 @@ private fun HomeContent(
     onOpen: (Long) -> Unit,
 ) {
     val continueEntries by ContinueStoreInstance.entries.collectAsState()
+    var continueMenu by remember { mutableStateOf<me.enivzoy.anilife.app.data.ContinueEntry?>(null) }
+    continueMenu?.let { row ->
+        ContinueActionsDialog(entry = row, onOpenDetails = { onOpen(row.anime.id) }, onDismiss = { continueMenu = null })
+    }
     val libraryEntries by repository.library.entries.collectAsState()
     val featured = remember(home) {
         home.trending.filter { !it.banner.isNullOrBlank() }
@@ -198,12 +203,14 @@ private fun HomeContent(
                                 modifier = Modifier.padding(top = 12.dp),
                             ) {
                                 items(continueEntries, key = { it.anime.id }) { entry ->
-                                    ContinueCard(
-                                        entry = entry,
-                                        onResume = { e -> onOpen(e.anime.id) },
-                                        onDetails = onOpen,
-                                        onRemove = { id -> ContinueStoreInstance.remove(id) },
-                                    )
+                                    Box(Modifier.onRightClick { continueMenu = entry }) {
+                                        ContinueCard(
+                                            entry = entry,
+                                            onResume = { e -> onOpen(e.anime.id) },
+                                            onDetails = onOpen,
+                                            onRemove = { id -> ContinueStoreInstance.remove(id) },
+                                        )
+                                    }
                                 }
                             }
                             Spacer(Modifier.height(38.dp))

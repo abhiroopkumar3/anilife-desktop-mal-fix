@@ -21,6 +21,10 @@ data class ContinueEntry(
     val anime: AnimeCard,
     val progress: ContinueProgress,
     val updatedAt: Long,
+    /** Episodes actually finished, as on Android's `HistoryEntry.watchedEpisodes`. */
+    val watched: Set<Double> = emptySet(),
+    /** Seeded from the account rather than from playback here (`HistoryEntry.fromRemote`). */
+    val fromRemote: Boolean = false,
 )
 
 class ContinueStore(private val file: File = continueFile()) {
@@ -30,12 +34,17 @@ class ContinueStore(private val file: File = continueFile()) {
 
     fun upsert(anime: AnimeCard, episode: Double, position: Double, duration: Double) {
         if (duration <= 0.0) return
-        val entry = ContinueEntry(
-            anime = anime,
-            progress = ContinueProgress(episode, position.coerceIn(0.0, duration), duration),
-            updatedAt = System.currentTimeMillis(),
-        )
         synchronized(lock) {
+            val existing = mutableEntries.value.firstOrNull { it.anime.id == anime.id }
+            // An episode already counted as watched has nothing left to resume, and this is what
+            // keeps a late player callback from reopening a row that has moved past it.
+            if (existing != null && episode in existing.watched) return
+            val entry = ContinueEntry(
+                anime = anime,
+                progress = ContinueProgress(episode, position.coerceIn(0.0, duration), duration),
+                updatedAt = System.currentTimeMillis(),
+                watched = existing?.watched.orEmpty(),
+            )
             val updated = (mutableEntries.value.filterNot { it.anime.id == anime.id } + entry)
                 .sortedByDescending { it.updatedAt }
                 .take(24)
@@ -60,6 +69,42 @@ class ContinueStore(private val file: File = continueFile()) {
         mutableEntries.value = merged
         val previous = before.associateBy { it.anime.id }
         merged.count { it != previous[it.anime.id] }
+    }
+
+    /**
+     * An episode crossed the watched threshold: record it and move the row on (Android's
+     * `markEpisodeWatched`). Returns the row as it was when something changed, so the caller can
+     * log the day's activity from it, and null when nothing did.
+     */
+    fun markEpisodeWatched(animeId: Long, episode: Double, nextEpisode: Double?, seriesCompleted: Boolean): ContinueEntry? =
+        synchronized(lock) {
+            val existing = mutableEntries.value.firstOrNull { it.anime.id == animeId } ?: return null
+            val updated = continueAfterEpisodeWatched(existing, episode, nextEpisode, seriesCompleted)
+            if (updated == existing) return null
+            val rows = mutableEntries.value.filterNot { it.anime.id == animeId } + listOfNotNull(updated)
+            val sorted = rows.sortedByDescending { it.updatedAt }.take(24)
+            writeEntries(sorted)
+            mutableEntries.value = sorted
+            existing
+        }
+
+    /**
+     * The account finished the series on this push: take the row off, unless it is already on an
+     * episode past [progress]. Not dismissed, so a rewatch begun elsewhere can bring it back.
+     */
+    fun finishedOnAccount(animeId: Long, progress: Int) {
+        val row = mutableEntries.value.firstOrNull { it.anime.id == animeId } ?: return
+        if (row.progress.episode > progress) return
+        remove(animeId)
+    }
+
+    /** Put [entry] in as it is, keeping its own timestamp. Used when the account moves a row. */
+    fun replace(entry: ContinueEntry) = synchronized(lock) {
+        val updated = (mutableEntries.value.filterNot { it.anime.id == entry.anime.id } + entry)
+            .sortedByDescending { it.updatedAt }
+            .take(24)
+        writeEntries(updated)
+        mutableEntries.value = updated
     }
 
     fun remove(id: Long) = synchronized(lock) {
@@ -105,7 +150,7 @@ class ContinueStore(private val file: File = continueFile()) {
                 val position = value("position")?.toDoubleOrNull() ?: 0.0
                 val duration = value("duration")?.toDoubleOrNull() ?: 0.0
                 val updatedAt = value("updatedAt")?.toLongOrNull() ?: 0L
-                if (duration <= 0.0) return@mapNotNull null
+                // A row seeded from an account has no length until the episode is played.
                 val anime = AnimeCard(
                     id = id,
                     title = title,
@@ -125,7 +170,16 @@ class ContinueStore(private val file: File = continueFile()) {
                     genres = value("genres")?.split('|')?.filter(String::isNotBlank).orEmpty(),
                     isAdult = value("isAdult")?.toBooleanStrictOrNull() ?: false,
                 )
-                ContinueEntry(anime, ContinueProgress(episode, position, duration), updatedAt)
+                val written = properties.getProperty("${prefix}watched")
+                val watched = if (written != null) {
+                    written.split(',').mapNotNull { it.trim().toDoubleOrNull() }.toSet()
+                } else {
+                    seededLegacyWatched(episode)
+                }
+                ContinueEntry(
+                    anime, ContinueProgress(episode, position, duration), updatedAt, watched,
+                    fromRemote = value("fromRemote")?.toBooleanStrictOrNull() ?: false,
+                )
             }
             .sortedByDescending { it.updatedAt }
             .toList()
@@ -160,6 +214,9 @@ class ContinueStore(private val file: File = continueFile()) {
             put("position", e.progress.position)
             put("duration", e.progress.duration)
             put("updatedAt", e.updatedAt)
+            // Always written, even when empty: its absence is what marks a row from before this existed.
+            properties.setProperty(prefix + "watched", e.watched.sorted().joinToString(",") { formatEpisode(it) })
+            put("fromRemote", e.fromRemote)
         }
         file.parentFile?.let { java.nio.file.Files.createDirectories(it.toPath()) }
         val temporary = File(file.parentFile, "${file.name}.tmp")
@@ -184,3 +241,10 @@ class ContinueStore(private val file: File = continueFile()) {
 }
 
 val ContinueStoreInstance: ContinueStore = ContinueStore()
+private fun formatEpisode(number: Double): String =
+    if (number % 1.0 == 0.0) number.toLong().toString() else number.toString()
+
+/** Rows saved before the watched set existed: every whole episode below the one in progress. */
+internal fun seededLegacyWatched(episode: Double): Set<Double> =
+    if (episode <= 1.0) emptySet()
+    else generateSequence(1.0) { it + 1.0 }.takeWhile { it < episode }.toSet()

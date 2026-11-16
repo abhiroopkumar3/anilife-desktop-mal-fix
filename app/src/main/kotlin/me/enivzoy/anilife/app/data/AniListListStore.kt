@@ -57,6 +57,11 @@ internal class AniListListStore(
             .toList()
     }
 
+    /** Forget the cached list of a signed-out account so the next one never sees it. */
+    fun clear(userId: Long) {
+        listFile(userId).delete()
+    }
+
     fun write(userId: Long, entries: List<AniListListEntry>) {
         val properties = Properties()
         entries.forEach { entry ->

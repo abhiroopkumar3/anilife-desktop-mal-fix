@@ -40,11 +40,15 @@ object AniListSync {
     private val mutableUser = MutableStateFlow<AniListUser?>(null)
     private val mutableEntries = MutableStateFlow<List<AniListListEntry>>(emptyList())
     private val mutableStatus = MutableStateFlow(AniListSyncStatus())
+    private val mutableActivity = MutableStateFlow<Map<Long, Int>>(emptyMap())
     private var credentials: AniListCredentials? = null
 
     val user = mutableUser.asStateFlow()
     val entries = mutableEntries.asStateFlow()
     val status = mutableStatus.asStateFlow()
+
+    /** The account's own activity per epoch day. Empty until read, and when AniList will not say. */
+    val activity = mutableActivity.asStateFlow()
 
     fun authorizationUrl(): String {
         val clientId = AniListConfig.clientId()
@@ -131,12 +135,24 @@ object AniListSync {
     }
 
     suspend fun disconnect() = mutex.withLock {
+        mutableUser.value?.id?.let(listStore::clear)
         credentialStore.delete()
         legacyTokenFile().delete()
         credentials = null
+        CustomListStoreInstance.onAccountLeft()
         mutableUser.value = null
         mutableEntries.value = emptyList()
+        mutableActivity.value = emptyMap()
         mutableStatus.value = AniListSyncStatus(connection = AniListConnection.SIGNED_OUT)
+    }
+
+    /** Read the account's activity history. A failure keeps what was there; it is never worth an error. */
+    suspend fun refreshActivity() {
+        val (account, auth) = runCatching { mutex.withLock { requireConnected() } }.getOrNull() ?: return
+        val days = runCatching {
+            kotlinx.coroutines.withTimeoutOrNull(8_000L) { api.activityHistory(auth.accessToken, account.id) }
+        }.getOrNull() ?: return
+        if (mutableUser.value?.id == account.id) mutableActivity.value = days
     }
 
     suspend fun refreshList() = mutex.withLock {
@@ -162,6 +178,66 @@ object AniListSync {
                 score = 0.0,
             )
         }
+
+    /** Mirror the Save button: see [aniListSavedPush]. Never changes an entry that has been moved on. */
+    suspend fun syncSaved(anime: AnimeCard, saved: Boolean) = mutex.withLock {
+        val (account, auth) = requireConnected()
+        val current = api.entry(auth.accessToken, account.id, anime.id)
+        val push = aniListSavedPush(
+            saved,
+            current?.status?.apiValue,
+            hidden = current?.hidden == true,
+            inCustomLists = current?.customLists?.isNotEmpty() == true,
+        )
+        when (push) {
+            SavedPush.ADD_PLANNING -> saveRemoteEntry(account, auth, anime, null, AniListListStatus.PLANNING, 0, 0.0)
+            SavedPush.SHOW_ON_PLANNING -> api.setHiddenFromStatusLists(auth.accessToken, anime.id, false)
+            SavedPush.HIDE_FROM_STATUS_LISTS -> api.setHiddenFromStatusLists(auth.accessToken, anime.id, true)
+            SavedPush.DELETE -> {
+                if (current != null && api.delete(auth.accessToken, current.entryId)) replaceEntry(null, anime.id)
+                else error("AniList did not confirm the list entry deletion.")
+            }
+            SavedPush.NONE -> Unit
+        }
+    }
+
+    // Custom lists. Reads and writes go straight to the account; CustomListStore keeps the pending ops.
+    suspend fun customListNames(): List<String> = mutex.withLock {
+        val (_, auth) = requireConnected(); api.customListNames(auth.accessToken)
+    }
+    suspend fun setCustomListNames(names: List<String>): List<String> = mutex.withLock {
+        val (_, auth) = requireConnected(); api.setCustomListNames(auth.accessToken, names)
+    }
+    suspend fun saveCustomLists(writes: List<CustomListWrite>) = mutex.withLock {
+        val (_, auth) = requireConnected(); api.saveCustomListMemberships(auth.accessToken, writes)
+    }
+    /** The account's whole list, read fresh (hidden entries and custom lists included). */
+    suspend fun freshEntries(): List<AniListListEntry> = mutex.withLock {
+        val (account, auth) = requireConnected(); api.list(auth.accessToken, account.id)
+    }
+    suspend fun deleteEntries(entryIds: List<Long>) = mutex.withLock {
+        val (_, auth) = requireConnected(); api.deleteEntries(auth.accessToken, entryIds)
+    }
+
+    // The card menu's writes. Each reads nothing back into the cached list; the caller refreshes it.
+    suspend fun moveStatus(mediaId: Long, status: String) = mutex.withLock {
+        val (_, auth) = requireConnected(); api.moveStatus(auth.accessToken, mediaId, status)
+    }
+    suspend fun markWatched(mediaId: Long, totalEpisodes: Int?) = mutex.withLock {
+        val (_, auth) = requireConnected(); api.markWatched(auth.accessToken, mediaId, totalEpisodes)
+    }
+    suspend fun setScore(mediaId: Long, score: Int) = mutex.withLock {
+        val (_, auth) = requireConnected(); api.setScore(auth.accessToken, mediaId, score)
+    }
+    suspend fun progressOf(mediaId: Long): Int? = mutex.withLock {
+        val (_, auth) = requireConnected(); api.snapshot(auth.accessToken, mediaId)?.progress
+    }
+    suspend fun setProgress(mediaId: Long, progress: Int) = mutex.withLock {
+        val (_, auth) = requireConnected(); api.setProgress(auth.accessToken, mediaId, progress)
+    }
+    suspend fun deleteByMedia(mediaId: Long): Boolean = mutex.withLock {
+        val (_, auth) = requireConnected(); api.deleteByMedia(auth.accessToken, mediaId)
+    }
 
     suspend fun updateEntry(
         entry: AniListListEntry,
@@ -253,26 +329,14 @@ object AniListSync {
     private suspend fun syncPendingProgress(account: AniListUser, auth: AniListCredentials) {
         val pending = listStore.pendingProgress(account.id)
         for ((mediaId, queued) in pending) {
-            val current = api.entry(auth.accessToken, account.id, mediaId)
-            val requested = queued.anime.episodes?.takeIf { it > 0 }
-                ?.let(queued.episode::coerceAtMost) ?: queued.episode
-            if (current != null && current.progress >= requested) {
-                listStore.removePendingProgress(account.id, mediaId)
-                continue
+            val current = api.snapshot(auth.accessToken, mediaId)
+            val update = planProgressUpdate(current, queued.episode, queued.anime.episodes)
+            if (update != null) {
+                api.pushProgress(auth.accessToken, mediaId, update, current)
+                api.entry(auth.accessToken, account.id, mediaId)?.let { replaceEntry(it) }
+                // A push that finished the series takes the title off Continue Watching.
+                if (update.status == "COMPLETED") ContinueStoreInstance.finishedOnAccount(mediaId, update.progress)
             }
-            val nextStatus = when (current?.status) {
-                null, AniListListStatus.PLANNING -> AniListListStatus.CURRENT
-                else -> current.status
-            }
-            val saved = api.save(
-                token = auth.accessToken,
-                entryId = current?.entryId,
-                mediaId = mediaId,
-                status = nextStatus,
-                progress = maxOf(current?.progress ?: 0, requested),
-                score = current?.score ?: 0.0,
-            )
-            replaceEntry(saved)
             listStore.removePendingProgress(account.id, mediaId)
         }
         refreshPendingCount(account.id)
