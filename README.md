@@ -1,3 +1,49 @@
+# AniLife for desktop: MAL fix and personal Windows build
+
+> **This is an unofficial personal fork** of [anilifecommunity/kotlindesktop](https://github.com/anilifecommunity/kotlindesktop).
+> It differs from the original in two ways, and builds its own Windows installers with GitHub Actions.
+
+## What is different from the original
+
+| Change | Why |
+| --- | --- |
+| **MyAnimeList sign-in uses the `plain` PKCE method.** | MAL only supports `plain`. The original sent `S256`, so the token step failed with "invalid grant" after a successful browser login. Sent upstream as [PR #2](https://github.com/anilifecommunity/kotlindesktop/pull/2). |
+| **The in-app update check reads this fork's releases**, not the original's. | So installs from here update from here. See `Updater.kt`. |
+
+Everything else is the original code, kept up to date by the sync below.
+
+## Download
+
+Open the [Releases](../../releases) page and download `anilife-<version>.base.exe` (or the `.msi`, or the portable versions) from the latest release. The installers are **not code-signed**, so Windows SmartScreen may warn. Choose "More info", then "Run anyway", if you trust the source.
+
+## How the automation works
+
+Three workflows in `.github/workflows` run in a chain:
+
+| Workflow | What it does | When it runs |
+| --- | --- | --- |
+| **Sync from upstream** (`sync-upstream.yml`) | Merges the original repo's latest commits into `main`, keeping this fork's edits. It never takes workflow files or this README from upstream. Then it starts a build only if the version in `app/build.gradle.kts` has no release here yet. | Every Monday at 00:30 Austin time (America/Chicago), or manually |
+| **Build Windows installers** (`build-windows.yml`) | Runs the tests, builds the `.msi` and `.exe` installers (normal and portable) and uploads them as the artifact `Anilife-Windows-Installers` (kept 90 days). On success it starts the release workflow. | Started by the sync, or manually |
+| **Publish release from a build run** (`release-from-run.yml`) | Creates the tag `v<version>` and a GitHub release with the installers attached. If the release exists, it replaces the files. | Started by the build, or manually with a run ID |
+
+If the original and this fork changed the same lines, the sync stops, changes nothing and shows the
+conflicting files in its log. A new release appears only when the version number goes up. Tick
+**Force build** on the sync to build anyway. A fork-only change with the same version number does not
+reach installed apps, because the updater only offers a higher version.
+
+To run a workflow by hand, open the **Actions** tab, pick it and use **Run workflow**.
+
+## MyAnimeList setup
+
+Create an app at <https://myanimelist.net/apiconfig> with type `other` and the redirect URL
+`http://localhost:8765`, then put its Client ID in the app's Settings (or in `MAL_CLIENT_ID`).
+
+## About the app
+
+The original project's description follows.
+
+---
+
 # AniLife for desktop
 
 [![Build](https://github.com/anilifecommunity/kotlindesktop/actions/workflows/build.yml/badge.svg)](https://github.com/anilifecommunity/kotlindesktop/actions/workflows/build.yml)
