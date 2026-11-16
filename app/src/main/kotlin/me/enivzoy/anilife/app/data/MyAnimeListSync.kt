@@ -73,9 +73,9 @@ object MyAnimeListSync {
         require(clientId.isNotBlank()) { "Enter your MyAnimeList client ID in Settings first." }
         val state = randomUrlToken()
         val verifier = randomUrlToken()
-        val challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(
-            java.security.MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)),
-        )
+        // MyAnimeList only supports the "plain" PKCE method, so the challenge is the verifier itself.
+        // Sending an S256 hash makes the token exchange fail with "invalid_grant".
+        val challenge = verifier
         val authorizeUrl = URI.create(AUTHORIZE).let { uri ->
             val redirectUri = "http://localhost:$MAL_CALLBACK_PORT"
             val query = listOf(
@@ -83,7 +83,7 @@ object MyAnimeListSync {
                 "client_id" to clientId,
                 "state" to state,
                 "code_challenge" to challenge,
-                "code_challenge_method" to "S256",
+                "code_challenge_method" to "plain",
                 "redirect_uri" to redirectUri,
             ).joinToString("&") { (key, value) -> "${encode(key)}=${encode(value)}" }
             "$uri?$query"
