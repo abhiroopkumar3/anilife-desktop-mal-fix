@@ -17,7 +17,7 @@ name: Build Windows installers
 #
 # Version boxes on "Run workflow": Base and Revision are optional and count only when "Publish" is
 # ticked. Left empty, the version comes from fork-version.properties. Typed, they are checked
-# (base 1.2.3, revision a whole number) and written back
+# (base 1.2.3 and never below the current base, revision a whole number) and written back
 # to fork-version.properties on main once the build succeeds, so the file always names the newest
 # release. That commit uses the built-in token, so it does not start another build.
 
@@ -85,6 +85,15 @@ jobs:
           fi
           if [ -n "$TYPED_BASE" ] && [ -z "$TYPED_REVISION" ]; then
             echo "::error::A base was typed without a revision. Type the revision too (use 1 for a new base)."; exit 1
+          fi
+
+          # With Publish ticked, the base may stay or go up, never down (1.0.10 is above 1.0.9). The
+          # revision has no such rule. The file's base is the newest one, because it is kept in step.
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$PUBLISH" = "true" ] && [ -n "$TYPED_BASE" ]; then
+            lowest="$(printf '%s\n%s\n' "$base" "$TYPED_BASE" | sort -V | head -n1)"
+            if [ "$lowest" != "$base" ]; then
+              echo "::error::Base $TYPED_BASE is lower than the current base $base. It can stay the same or go up, never down."; exit 1
+            fi
           fi
 
           if [ "$EVENT" = "workflow_dispatch" ] && [ "$PUBLISH" = "true" ] && { [ -n "$TYPED_BASE" ] || [ -n "$TYPED_REVISION" ]; }; then
