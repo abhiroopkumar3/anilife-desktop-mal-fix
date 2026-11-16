@@ -117,7 +117,8 @@ fun buildCombinedWatchlist(
     /** The episode this PC last played, per title, for a save the account knows nothing about. */
     historyEpisodes: Map<Long, Int> = emptyMap(),
 ): List<LibraryCardData> {
-    val account = planning.filter { it.status == "PLANNING" }.distinctBy { it.anime.id }
+    // A title filed in custom lists only is on no status list, Planning included.
+    val account = planning.filter { it.status == "PLANNING" && !it.hiddenFromStatusLists }.distinctBy { it.anime.id }
     val byId = account.associateBy { it.anime.id }
     val localIds = local.mapTo(mutableSetOf()) { it.anime.id }
     return buildList {
@@ -147,6 +148,39 @@ fun buildCombinedWatchlist(
             add(entry.toCard())
         }
     }.distinctBy(LibraryCardData::id)
+}
+
+/**
+ * One custom list's cards. The list holds what it needs to draw a title; where the account also
+ * tracks it on a status list, that status, score and progress are shown the way every other section
+ * shows them. A title filed in custom lists only is on no status list, so it shows none (Android
+ * reads the status lists, which leave those out).
+ */
+fun customListCards(
+    list: CustomList,
+    account: List<ListEntry>,
+    historyEpisodes: Map<Long, Int> = emptyMap(),
+): List<LibraryCardData> {
+    val tracked = account.filterNot { it.hiddenFromStatusLists }.associateBy { it.anime.id }
+    return list.entries.distinctBy { it.anime.id }.map { saved ->
+        val entry = tracked[saved.anime.id]
+        val anime = entry?.anime ?: saved.anime
+        LibraryCardData(
+            id = saved.anime.id,
+            title = anime.title,
+            cover = anime.cover ?: saved.anime.cover,
+            format = anime.format ?: saved.anime.format,
+            airingStatus = entry?.anime?.status,
+            status = entry?.status,
+            userScore = entry?.score?.takeIf { it > 0 },
+            averageScore = anime.score ?: saved.anime.score,
+            progress = entry?.progress ?: historyEpisodes[saved.anime.id],
+            totalEpisodes = entry?.anime?.episodes,
+            updatedAt = saved.addedAt / 1000L,
+            nextEpisodeNumber = entry?.anime?.nextAiring?.episode,
+            nextEpisodeAiringAt = entry?.anime?.nextAiring?.airingAt,
+        )
+    }
 }
 
 /** The account's Completed list. Android also adds titles marked watched on the device; Windows has no such mark. */

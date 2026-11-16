@@ -45,6 +45,7 @@ import me.enivzoy.anilife.app.data.AccountLibrary
 import me.enivzoy.anilife.app.data.AniListSync
 import me.enivzoy.anilife.app.data.ContinueEntry
 import me.enivzoy.anilife.app.data.ContinueStoreInstance
+import me.enivzoy.anilife.app.data.CustomListStoreInstance
 import me.enivzoy.anilife.app.data.LIST_DESTINATIONS
 import me.enivzoy.anilife.app.data.ListEdits
 import me.enivzoy.anilife.app.data.ListEntry
@@ -83,6 +84,8 @@ fun AnimeListActionsDialog(
     onRemoveSaved: () -> Unit,
     onDismiss: () -> Unit,
     kicker: String = "My list",
+    /** What a custom list needs to draw this title; null leaves the "My lists" rows off. */
+    listCard: me.enivzoy.anilife.core.model.AnimeCard? = null,
 ) {
     val service = AccountLibrary.activeService()
     val entry = accountEntryFor(anilistId)
@@ -187,6 +190,36 @@ fun AnimeListActionsDialog(
                         onClick = { pane = Pane.DELETE },
                     )
                 }
+            }
+        }
+        if (pane == Pane.MENU && listCard != null) {
+            val customLists by CustomListStoreInstance.lists.collectAsState()
+            var namingList by remember(anilistId) { mutableStateOf(false) }
+            SectionLabel("My lists")
+            customLists.forEach { list ->
+                val member = list.entries.any { it.anime.id == anilistId }
+                ActionRow(
+                    label = list.name,
+                    hint = "${list.entries.size} anime",
+                    selected = member,
+                    enabled = busy == null,
+                    onClick = { CustomListStoreInstance.setMember(list.name, listCard, !member) },
+                )
+            }
+            ActionRow(
+                label = "New list…",
+                hint = if (customLists.isEmpty()) "Group titles your own way: favourites, a marathon, anything" else null,
+                enabled = busy == null,
+                onClick = { namingList = true },
+            )
+            if (namingList) {
+                CustomListNameDialog(
+                    title = "New list",
+                    confirmText = "Create",
+                    service = service,
+                    onSave = { name -> CustomListStoreInstance.createWith(name, listCard)?.also { namingList = false } },
+                    onDismiss = { namingList = false },
+                )
             }
         }
         error?.let { Text(it, color = AniLifeColors.Destructive, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp)) }

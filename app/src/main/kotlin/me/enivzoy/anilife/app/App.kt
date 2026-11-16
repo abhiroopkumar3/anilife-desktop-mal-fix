@@ -409,7 +409,7 @@ fun AniLifeApp(
                         notifier = releaseNotifier,
                         onOpenAnime = { navigateTo(Screen.Detail(it)) },
                     )
-                    Screen.Profile -> MyAnimeListScreen(repository)
+                    Screen.Profile -> MyAnimeListScreen(repository, settings, ::updateSettings)
                     Screen.Downloads -> DownloadsScreen(
                         repository = repository,
                         settings = settings,

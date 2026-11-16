@@ -28,10 +28,16 @@ Status: **Done** (ported and tested), **Planned**, **Not ported** (no Windows eq
 | `mergeWatchlistEntries` | `data/LibrarySyncRules.kt` | Done (rule) | `WatchlistRemovalTest` ported (7) plus one date-kept case. Wiring: Planned |
 | `HistoryEntry.watchedEpisodes`, `historyAfterRemoteProgress`, `historyAfterEpisodeWatched`, `remoteRowEpisode`, `remoteMovesOffWatching`, `isFinishedSeriesLeftover`, `shouldRecordWatchActivity`, `seedLegacyWatchedEpisodes` | `data/LibrarySyncRules.kt`, `ContinueEntry.watched` and `fromRemote`, `ContinueStore` | Done | Watched set is stored per Continue row, grown by the account's count, recorded when the player crosses the watched threshold (the AniList submit share; at 100 only the end counts), and seeded once for rows saved before it existed. Tests ported with Windows rows in place of `HistoryEntry` |
 | `AccountAdoption` (one active account) | `data/AccountAdoption.kt` | Done, partly | New sign-in succeeds first, then the other service is logged out and its cached list cleared. Both-connected users keep the most recent sign-in (AniList if unknown). Pushing saved titles to the new account: Planned |
-| `LibraryStore.syncSavedToRemote`, `toggleWatchlist`, `retryPendingSavedSync` | `AccountLibrary`, `SavedPush.kt`, `PendingSavedStore`, setting `syncSavedToAccount` | Done | Saving adds Planning; unsaving removes only an entry still on Planning; failures are queued and retried on launch; queue cleared when the account changes. Detail screen Save now always toggles the local save (before, it edited the AniList entry directly). Custom-list hiding arrives with step 7 |
+| `LibraryStore.syncSavedToRemote`, `toggleWatchlist`, `retryPendingSavedSync` | `AccountLibrary`, `SavedPush.kt`, `PendingSavedStore`, setting `syncSavedToAccount` | Done | Saving adds Planning; unsaving removes only an entry still on Planning; failures are queued and retried on launch; queue cleared when the account changes. Detail screen Save now always toggles the local save (before, it edited the AniList entry directly). A Planning entry that also sits in custom lists is hidden from the status lists instead of deleted on unsave, and saving it again shows it (`SHOW_ON_PLANNING`, `HIDE_FROM_STATUS_LISTS`) |
 | `planMediaListProgressUpdate`, `saveMalProgress`, `malProgressSkipReason`, `finishedOnAccount` | `data/ProgressRules.kt`, `data/MalProgressSync.kt`, `AniListSync.syncPendingProgress` | Done | Both services follow one plan: never lower a count, leave Completed alone, finish on the last episode, count a rewatch. MAL is held to its own episode total. Android's AniList and MAL tests ported (`ProgressRulesTest`). Failed MAL pushes are kept and retried at launch (up to 6 tries, as Android's worker gives up). Windows pushes MAL at the same watched threshold as AniList; it used to wait for the end of the episode |
 | `WatchActivityStore`, `mergedActivity`, `activityStreak`, `shouldRecordWatchActivity`, `ActivityHeatmap`, `activityHistory` | `data/WatchActivity.kt`, `ui/ActivityHeatmap.kt`, `AniListSync.refreshActivity` | Done (needs a visual check on a PC) | Android's two tests ported. Grid sits on the Accounts screen, because Windows has no account drawer. The Android drawer's other Overview and Stats panels are not part of My List and are not ported. Backups do not carry the log (Android's does not either) |
-| `CustomListStore`, `CustomLists.kt` | | Planned | AniList lists, MAL tags, local when signed out |
+| `CustomLists.kt` (`normalizedListName`, `CustomListOps`, `plannedListNames`, `plannedEntryChanges`, `mergedCustomLists`) | `data/CustomListRules.kt` | Done (rule) | 14 ported cases in `CustomListRulesTest`, plus `CustomListCardsTest` and `HiddenEntriesTest` |
+| `CustomListStore` | `data/CustomListStore.kt`, `data/CustomListSync.kt`, `data/AnimeCardProperties.kt`, file `custom-lists.properties` | Done, needs a visual check | AniList custom lists, MAL tags, and a local list when signed out. Changes are recorded as pending ops and replayed against the account; a refresh lays them on top of what the account holds. Leaving an account turns every list back into pending ops for the next one. 10 cases in `CustomListStoreTest` |
+| `aniListCollectionForCustomLists`, `setCustomListNames`, `saveCustomListMemberships`, `deleteMediaListEntries` | `AniListAccountApi`, `AniListSync` | Done | Same GraphQL. A title put in a list with no account entry is made as Planning hidden from the status lists; one left in no list is deleted |
+| `MalClient.updateListStatus(tags=)` | `MyAnimeListSync.setTags` | Done | A title MAL lacks is added as Plan to Watch |
+| `hiddenFromStatusLists` on entries | `AniListListEntry.hidden`, `ListEntry.hiddenFromStatusLists` | Done | Windows used to ignore the flag; custom-list-only entries no longer appear as Planning or in the watchlist |
+| Custom-list chips, sections, `CustomListNameDialog`, `CustomListManageDialog` | `screens/LibraryScreen.kt`, `screens/CustomListDialogs.kt` | Done, needs a visual check | One chip per list after the status chips, then "+ New list". Each shown list is a section with Edit (rename or delete) and Expand |
+| `MalTagsDialog`, `hiddenMalTags` | `screens/CustomListDialogs.kt`, `AppSettings.hiddenMalTags`, Accounts page button | Done | Hidden tags stay on MyAnimeList untouched and are written back unchanged |
 
 ## Screen
 
@@ -47,7 +53,7 @@ Status: **Done** (ported and tested), **Planned**, **Not ported** (no Windows eq
 ## Menu differences
 
 - The Detail page's Save button still toggles the local save; on Android it opens this menu. Outside the My List page.
-- "My lists" rows in the menu arrive with custom lists (step 7).
+- The menu's "My lists" rows are on the Library page's card menu only. The Continue Watching menu on Windows does not list them.
 - Android's "Watched" row for a signed-out viewer belongs to LocalWatchedStore, not ported.
 - Android also tells Simkl about moves and removals; Simkl is not part of Windows.
 
@@ -59,6 +65,7 @@ Status: **Done** (ported and tested), **Planned**, **Not ported** (no Windows eq
 | Downloads section on the Library page | Windows has its own Downloads screen |
 | `LocalWatchedStore` (mark watched) | Windows has no such feature |
 | Encrypted logins, recent searches in backups | No Windows equivalent |
+| Custom lists in backups (`AppBackup.customLists`, `importLists`) | `CustomListStore.importLists` is ported; the backup file itself arrives with PR #3 (backup and restore), which is not on this branch yet |
 
 ## Keeping the two in step
 

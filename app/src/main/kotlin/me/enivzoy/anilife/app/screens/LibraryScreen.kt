@@ -92,6 +92,12 @@ import me.enivzoy.anilife.app.data.MyAnimeListSync
 import me.enivzoy.anilife.app.data.PosterElement
 import me.enivzoy.anilife.app.data.aniListEntriesToEntries
 import me.enivzoy.anilife.app.data.buildCombinedWatchlist
+import me.enivzoy.anilife.app.data.CustomList
+import me.enivzoy.anilife.app.data.CustomListStoreInstance
+import me.enivzoy.anilife.app.data.ListService
+import me.enivzoy.anilife.app.data.customListCards
+import me.enivzoy.anilife.app.data.listKey
+import me.enivzoy.anilife.core.model.AnimeCard
 import me.enivzoy.anilife.app.data.cardsForStatus
 import me.enivzoy.anilife.app.data.defaultLibraryViewNames
 import me.enivzoy.anilife.app.data.libraryCards
@@ -115,6 +121,9 @@ import me.enivzoy.anilife.app.ui.parseAnimeColor
  * follows are in LibraryRules.kt; PARITY.md maps each part to the Android code.
  */
 
+/** A custom list's chip on the header row. */
+internal data class CustomChip(val name: String, val count: Int, val selected: Boolean)
+
 /** What the viewer has chosen on this page. It lasts as long as the app runs, as Android's does while the app is open. */
 internal object LibraryUiState {
     var search by mutableStateOf("")
@@ -124,6 +133,16 @@ internal object LibraryUiState {
     var views by mutableStateOf(defaultLibraryViewNames())
     var expanded by mutableStateOf("")
     var continueExpanded by mutableStateOf(false)
+    /** Custom lists the viewer switched off, and the ones shown as a grid, as comma-joined [listKey]s. */
+    var hiddenCustom by mutableStateOf("")
+    var expandedCustom by mutableStateOf("")
+}
+
+/** [key] added to the comma-joined [keys], or taken out when it is already there. */
+internal fun toggledKeys(keys: String, key: String): String {
+    val set = keys.split(',').filterTo(linkedSetOf()) { it.isNotBlank() }
+    if (!set.add(key)) set.remove(key)
+    return set.joinToString(",")
 }
 
 private val FORMAT_OPTIONS = listOf(
@@ -158,6 +177,7 @@ fun LibraryScreen(
     val syncStatus by AniListSync.status.collectAsState()
     val saves by repository.library.saves.collectAsState()
     val continueRows by ContinueStoreInstance.entries.collectAsState()
+    val customLists by CustomListStoreInstance.lists.collectAsState()
 
     if (syncStatus.connection == AniListConnection.RESTORING) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -186,6 +206,20 @@ fun LibraryScreen(
             if (status == null) buildCombinedWatchlist(account, saves, history) else cardsForStatus(account, status)
         }
     }
+    val customSources: Map<String, List<LibraryCardData>> = remember(customLists, account, continueRows) {
+        val history = continueRows.associate { it.anime.id to it.progress.episode.toInt() }
+        customLists.associate { list -> listKey(list.name) to customListCards(list, account, history) }
+    }
+    val hiddenCustom = LibraryUiState.hiddenCustom.split(',').toSet()
+    val expandedCustom = LibraryUiState.expandedCustom.split(',').toSet()
+    val shownCustomLists = customLists.filterNot { listKey(it.name) in hiddenCustom }
+    fun shownCustom(list: CustomList) = libraryCards(
+        source = customSources[listKey(list.name)].orEmpty(),
+        format = LibraryUiState.format,
+        airing = LibraryUiState.airing,
+        titleFilter = LibraryUiState.search,
+        sort = LibraryUiState.sort,
+    )
     fun shown(view: LibraryView) = libraryCards(
         source = sources[view].orEmpty(),
         format = LibraryUiState.format,
@@ -193,12 +227,15 @@ fun LibraryScreen(
         titleFilter = LibraryUiState.search,
         sort = LibraryUiState.sort,
     )
-    val resultCount = chosen.sumOf { shown(it).size }
+    val resultCount = chosen.sumOf { shown(it).size } + shownCustomLists.sumOf { shownCustom(it).size }
     val filtersActive = LibraryUiState.format != null || LibraryUiState.airing != null || LibraryUiState.search.isNotBlank()
 
     val scope = rememberCoroutineScope()
     var error by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<LibraryCardData?>(null) }
+    var namingList by remember { mutableStateOf(false) }
+    var managingListName by remember { mutableStateOf<String?>(null) }
+    val listService = AccountLibrary.activeService()
     var menuCard by remember { mutableStateOf<LibraryCardData?>(null) }
     var continueMenu by remember { mutableStateOf<me.enivzoy.anilife.app.data.ContinueEntry?>(null) }
     val listState = rememberLazyListState()
@@ -231,6 +268,11 @@ fun LibraryScreen(
                         available = available,
                         chosen = chosen,
                         counts = available.associateWith { shown(it).size },
+                        customChips = customLists.map { list ->
+                            CustomChip(list.name, shownCustom(list).size, listKey(list.name) !in hiddenCustom)
+                        },
+                        onToggleCustom = { name -> LibraryUiState.hiddenCustom = toggledKeys(LibraryUiState.hiddenCustom, listKey(name)) },
+                        onNewList = { namingList = true },
                         resultCount = resultCount,
                         syncing = syncStatus.syncing,
                         message = error ?: syncStatus.message,
@@ -265,7 +307,33 @@ fun LibraryScreen(
                         }
                     }
                 }
-                if (chosen.isEmpty()) {
+                shownCustomLists.forEach { list ->
+                    val key = listKey(list.name)
+                    item(key = "custom-$key") {
+                        val cards = shownCustom(list)
+                        val expanded = key in expandedCustom
+                        LibrarySection(
+                            title = list.name,
+                            subtitle = "${cards.size} anime · " + when (listService) {
+                                ListService.ANILIST -> "Your AniList custom list"
+                                ListService.MAL -> "A MyAnimeList tag"
+                                null -> "On this PC"
+                            },
+                            expanded = expanded,
+                            onToggleExpanded = { LibraryUiState.expandedCustom = toggledKeys(LibraryUiState.expandedCustom, key) },
+                            onManage = { managingListName = list.name },
+                        ) {
+                            when {
+                                cards.isEmpty() -> EmptyLine(
+                                    if (filtersActive) "No anime match these filters" else "Right-click any anime to add it to this list",
+                                )
+                                expanded -> PosterGrid(cards, columns, off, nowSec, signedIn, onOpen, { menuCard = it }) { pendingDelete = it }
+                                else -> PosterCarousel("custom$key${cards.size}", cards, off, nowSec, signedIn, onOpen, { menuCard = it }) { pendingDelete = it }
+                            }
+                        }
+                    }
+                }
+                if (chosen.isEmpty() && shownCustomLists.isEmpty()) {
                     item(key = "none-chosen") { EmptyLine("Choose a list above to show it here") }
                 }
                 item(key = "continue") {
@@ -297,7 +365,30 @@ fun LibraryScreen(
             saved = saves.any { it.anime.id == card.id },
             onRemoveSaved = { repository.removeFromLibrary(card.id) },
             onDismiss = { menuCard = null },
+            listCard = AnimeCard(
+                id = card.id, title = card.title, cover = card.cover, format = card.format,
+                score = card.averageScore, episodes = card.totalEpisodes,
+            ),
         )
+    }
+    if (namingList) {
+        CustomListNameDialog(
+            title = "New list",
+            confirmText = "Create",
+            service = listService,
+            onSave = { name ->
+                CustomListStoreInstance.create(name)?.also {
+                    LibraryUiState.hiddenCustom = LibraryUiState.hiddenCustom.split(',').filterNot { key -> key == listKey(it) }.joinToString(",")
+                    namingList = false
+                }
+            },
+            onDismiss = { namingList = false },
+        )
+    }
+    managingListName?.let { name ->
+        val list = customLists.firstOrNull { listKey(it.name) == listKey(name) }
+        if (list == null) managingListName = null
+        else CustomListManageDialog(list = list, service = listService, onDismiss = { managingListName = null })
     }
     continueMenu?.let { row ->
         ContinueActionsDialog(entry = row, onOpenDetails = { onOpen(row.anime.id) }, onDismiss = { continueMenu = null })
@@ -334,6 +425,9 @@ private fun LibraryHeader(
     available: List<LibraryView>,
     chosen: List<LibraryView>,
     counts: Map<LibraryView, Int>,
+    customChips: List<CustomChip>,
+    onToggleCustom: (String) -> Unit,
+    onNewList: () -> Unit,
     resultCount: Int,
     syncing: Boolean,
     message: String?,
@@ -354,6 +448,11 @@ private fun LibraryHeader(
                     onClick = { LibraryUiState.views = toggledLibraryViews(LibraryUiState.views, view) },
                 )
             }
+            // The viewer's own lists, after the account's statuses and toggled the same way.
+            customChips.forEach { chip ->
+                PillButton(text = "${chip.name}  ${chip.count}", selected = chip.selected, onClick = { onToggleCustom(chip.name) })
+            }
+            PillButton(text = "+ New list", selected = false, onClick = onNewList)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             OptionMenu("Format", FORMAT_OPTIONS, LibraryUiState.format) { LibraryUiState.format = it }
@@ -452,6 +551,7 @@ private fun LibrarySection(
     subtitle: String,
     expanded: Boolean,
     onToggleExpanded: () -> Unit,
+    onManage: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -460,6 +560,7 @@ private fun LibrarySection(
                 Text(title, color = AniLifeColors.Foreground, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Text(subtitle, color = AniLifeColors.MutedForeground, fontSize = 12.sp)
             }
+            onManage?.let { TextButton(onClick = it) { Text("Edit", color = AniLifeColors.Primary) } }
             TextButton(onClick = onToggleExpanded) { Text(if (expanded) "Carousel" else "Expand", color = AniLifeColors.Primary) }
         }
         content()

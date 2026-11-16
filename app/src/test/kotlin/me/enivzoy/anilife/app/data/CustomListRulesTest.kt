@@ -183,3 +183,61 @@ class CustomListRulesTest {
         assertEquals(emptyList<String>(), parseAniListCustomLists(null))
     }
 }
+
+class CustomListCardsTest {
+    private fun anime(id: Long, episodes: Int? = 12) = AnimeCard(id = id, title = "Title $id", cover = "c$id", episodes = episodes, status = "RELEASING")
+
+    @Test
+    fun `a tracked title wears the account's status score and progress`() {
+        val list = CustomList("Faves", listOf(LocalSave(anime(1), addedAt = 5_000)))
+        val cards = customListCards(list, listOf(ListEntry(anime(1), "CURRENT", progress = 4, score = 8.0)))
+        assertEquals("CURRENT", cards.single().status)
+        assertEquals(4, cards.single().progress)
+        assertEquals(8.0, cards.single().userScore)
+        assertEquals(5L, cards.single().updatedAt)
+    }
+
+    @Test
+    fun `an untracked title falls back to the episode this PC last played`() {
+        val list = CustomList("Faves", listOf(LocalSave(anime(2))))
+        val card = customListCards(list, emptyList(), historyEpisodes = mapOf(2L to 3)).single()
+        assertNull(card.status)
+        assertEquals(3, card.progress)
+    }
+
+    @Test
+    fun `a title filed in custom lists only shows no status`() {
+        val list = CustomList("Faves", listOf(LocalSave(anime(3))))
+        val hidden = ListEntry(anime(3), "PLANNING", hiddenFromStatusLists = true, customLists = listOf("Faves"))
+        assertNull(customListCards(list, listOf(hidden)).single().status)
+    }
+
+    @Test
+    fun `a title in the list twice is drawn once`() {
+        val list = CustomList("Faves", listOf(LocalSave(anime(4)), LocalSave(anime(4))))
+        assertEquals(1, customListCards(list, emptyList()).size)
+    }
+}
+
+class HiddenEntriesTest {
+    private fun anime(id: Long) = AnimeCard(id = id, title = "Title $id")
+
+    @Test
+    fun `a custom-list-only entry is on no status list and not in the watchlist`() {
+        val hidden = ListEntry(anime(1), "PLANNING", hiddenFromStatusLists = true, customLists = listOf("Faves"))
+        val shown = ListEntry(anime(2), "PLANNING")
+        assertEquals(emptyList(), cardsForStatus(listOf(hidden), "PLANNING"))
+        assertEquals(listOf(2L), buildCombinedWatchlist(listOf(hidden, shown), emptyList()).map { it.id })
+    }
+
+    @Test
+    fun `AniList's hidden flag and lists reach the shared model`() {
+        val entry = AniListListEntry(
+            entryId = 9, anime = anime(3), status = AniListListStatus.PLANNING, progress = 0, score = 0.0,
+            updatedAt = 0, hidden = true, customLists = listOf("Faves"),
+        )
+        val shared = aniListEntriesToEntries(listOf(entry)).single()
+        assertEquals(true, shared.hiddenFromStatusLists)
+        assertEquals(listOf("Faves"), shared.customLists)
+    }
+}
