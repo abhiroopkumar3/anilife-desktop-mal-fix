@@ -81,18 +81,18 @@ jobs:
           ;!@InstallEnd@!
           '@ -replace '(?m)^\s+', '' | Set-Content -Encoding utf8NoBOM sfx-config.txt
 
+          # Set the icon on the empty stub first. Rewriting resources after the payload is appended
+          # drops the appended data and leaves a tiny, useless exe.
+          Copy-Item "$sevenZip\7z.sfx" sfx-stub.sfx
+          & "$PWD/scripts/Set-ExeIcon.ps1" -Path "sfx-stub.sfx" -Icon "app/src/main/resources/anilife.ico"
+
           $out = "dist/anilife-$env:VERSION#portable.exe"
           $stream = [IO.File]::Create((Join-Path $PWD $out))
-          foreach ($f in @("$sevenZip\7z.sfx", "sfx-config.txt", "sfx-payload.7z")) {
+          foreach ($f in @("sfx-stub.sfx", "sfx-config.txt", "sfx-payload.7z")) {
             $bytes = [IO.File]::ReadAllBytes((Resolve-Path $f))
             $stream.Write($bytes, 0, $bytes.Length)
           }
           $stream.Close()
-
-      # The SFX config format has no Icon option; the helper rewrites the stub's icon resources.
-      - name: Apply AniLife icon to portable exe
-        run: |
-          & "$PWD/scripts/Set-ExeIcon.ps1" -Path "dist/anilife-$env:VERSION#portable.exe" -Icon "app/src/main/resources/anilife.ico"
 
       - name: Write version manifest
         run: |
@@ -114,7 +114,10 @@ jobs:
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $PWD "dist/version.json")
 
       - name: List outputs
-        run: Get-ChildItem dist | ForEach-Object { "{0,8:N1} MB  {1}" -f ($_.Length/1MB), $_.Name }
+        run: |
+          Get-ChildItem dist | ForEach-Object { "{0,8:N1} MB  {1}" -f ($_.Length/1MB), $_.Name }
+          $portable = Get-Item "dist/anilife-$env:VERSION#portable.exe"
+          if ($portable.Length -lt 50MB) { throw "Portable exe is only $($portable.Length) bytes; the payload is missing." }
 
       # "#" in file names can trip up artifact uploads, and GitHub turns it into "." on release
       # upload anyway, so use the final names (anilife-1.0.7.base.exe) from here on.
