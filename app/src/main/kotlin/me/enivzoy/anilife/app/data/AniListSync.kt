@@ -40,11 +40,15 @@ object AniListSync {
     private val mutableUser = MutableStateFlow<AniListUser?>(null)
     private val mutableEntries = MutableStateFlow<List<AniListListEntry>>(emptyList())
     private val mutableStatus = MutableStateFlow(AniListSyncStatus())
+    private val mutableActivity = MutableStateFlow<Map<Long, Int>>(emptyMap())
     private var credentials: AniListCredentials? = null
 
     val user = mutableUser.asStateFlow()
     val entries = mutableEntries.asStateFlow()
     val status = mutableStatus.asStateFlow()
+
+    /** The account's own activity per epoch day. Empty until read, and when AniList will not say. */
+    val activity = mutableActivity.asStateFlow()
 
     fun authorizationUrl(): String {
         val clientId = AniListConfig.clientId()
@@ -137,7 +141,17 @@ object AniListSync {
         credentials = null
         mutableUser.value = null
         mutableEntries.value = emptyList()
+        mutableActivity.value = emptyMap()
         mutableStatus.value = AniListSyncStatus(connection = AniListConnection.SIGNED_OUT)
+    }
+
+    /** Read the account's activity history. A failure keeps what was there; it is never worth an error. */
+    suspend fun refreshActivity() {
+        val (account, auth) = runCatching { mutex.withLock { requireConnected() } }.getOrNull() ?: return
+        val days = runCatching {
+            kotlinx.coroutines.withTimeoutOrNull(8_000L) { api.activityHistory(auth.accessToken, account.id) }
+        }.getOrNull() ?: return
+        if (mutableUser.value?.id == account.id) mutableActivity.value = days
     }
 
     suspend fun refreshList() = mutex.withLock {

@@ -62,6 +62,7 @@ import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Slider
 import me.enivzoy.anilife.app.data.ContinueStoreInstance
+import me.enivzoy.anilife.app.data.WatchActivityInstance
 import me.enivzoy.anilife.app.data.AnimeEpisode
 import me.enivzoy.anilife.app.data.AnimeVideoSource
 import me.enivzoy.anilife.app.data.AnimeSubtitleSource
@@ -367,7 +368,7 @@ fun PlayerScreen(
             val total = anime.episodes?.takeIf { it > 0 }
             ContinueStoreInstance.markEpisodeWatched(
                 anime.id, watched, nextEpisode.value, seriesCompleted = total != null && watched >= total,
-            )
+            )?.let { before -> WatchActivityInstance.recordEpisode(before, watched) }
         }
     }
 

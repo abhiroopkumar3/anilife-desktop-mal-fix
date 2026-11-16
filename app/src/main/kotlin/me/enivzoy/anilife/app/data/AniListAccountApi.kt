@@ -106,6 +106,10 @@ internal class AniListAccountApi(
         return result.distinctBy(AniListListEntry::entryId)
     }
 
+    /** The account's activity per day, as AniList's own profile heatmap draws it. Empty when unreadable. */
+    suspend fun activityHistory(token: String, userId: Long): Map<Long, Int> =
+        parseActivityHistory(request(token, ACTIVITY_QUERY, buildJsonObject { put("id", userId) }))
+
     suspend fun entry(token: String, userId: Long, mediaId: Long): AniListListEntry? {
         val data = request(
             token,
@@ -214,6 +218,10 @@ internal class AniListAccountApi(
         const val ENTRY_FIELDS = """
             id status progress score updatedAt
             media { $MEDIA_FIELDS }
+        """
+
+        const val ACTIVITY_QUERY = """
+            query (${'$'}id: Int) { User(id: ${'$'}id) { stats { activityHistory { date amount } } } }
         """
 
         const val VIEWER_QUERY = """

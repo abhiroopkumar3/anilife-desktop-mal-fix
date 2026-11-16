@@ -40,6 +40,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import me.enivzoy.anilife.app.data.AccountAdoption
 import me.enivzoy.anilife.app.data.AniListRepository
+import me.enivzoy.anilife.app.data.AniListSync
+import me.enivzoy.anilife.app.data.WatchActivityInstance
+import me.enivzoy.anilife.app.data.mergedActivity
+import me.enivzoy.anilife.app.ui.ActivityHeatmap
 import me.enivzoy.anilife.app.data.MyAnimeListEntry
 import me.enivzoy.anilife.app.data.MyAnimeListSync
 import me.enivzoy.anilife.app.ui.AniLifeColors
@@ -140,6 +144,16 @@ fun MyAnimeListScreen(repository: AniListRepository) {
 
         Spacer(Modifier.height(18.dp))
         AniListAccountSettings(repository)
+
+        val aniListUser by AniListSync.user.collectAsState()
+        val aniListActivity by AniListSync.activity.collectAsState()
+        val localActivity by WatchActivityInstance.days.collectAsState()
+        LaunchedEffect(aniListUser?.id) { if (aniListUser != null) AniListSync.refreshActivity() }
+        if (aniListUser != null || user != null) {
+            Spacer(Modifier.height(18.dp))
+            val merged = remember(localActivity, aniListActivity) { mergedActivity(localActivity, aniListActivity) }
+            ActivityHeatmap(merged, fromAccount = aniListUser != null)
+        }
 
         if (user != null) {
             Spacer(Modifier.height(18.dp))

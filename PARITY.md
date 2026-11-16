@@ -30,7 +30,7 @@ Status: **Done** (ported and tested), **Planned**, **Not ported** (no Windows eq
 | `AccountAdoption` (one active account) | `data/AccountAdoption.kt` | Done, partly | New sign-in succeeds first, then the other service is logged out and its cached list cleared. Both-connected users keep the most recent sign-in (AniList if unknown). Pushing saved titles to the new account: Planned |
 | `LibraryStore.syncSavedToRemote`, `toggleWatchlist`, `retryPendingSavedSync` | `AccountLibrary`, `SavedPush.kt`, `PendingSavedStore`, setting `syncSavedToAccount` | Done | Saving adds Planning; unsaving removes only an entry still on Planning; failures are queued and retried on launch; queue cleared when the account changes. Detail screen Save now always toggles the local save (before, it edited the AniList entry directly). Custom-list hiding arrives with step 7 |
 | `planMediaListProgressUpdate`, `saveMalProgress` | | Planned | MAL progress rules during playback |
-| `WatchActivityStore`, `mergedActivity`, `activityStreak` | | Planned | Activity grid |
+| `WatchActivityStore`, `mergedActivity`, `activityStreak`, `shouldRecordWatchActivity`, `ActivityHeatmap`, `activityHistory` | `data/WatchActivity.kt`, `ui/ActivityHeatmap.kt`, `AniListSync.refreshActivity` | Done (needs a visual check on a PC) | Android's two tests ported. Grid sits on the Accounts screen, because Windows has no account drawer. The Android drawer's other Overview and Stats panels are not part of My List and are not ported. Backups do not carry the log (Android's does not either) |
 | `CustomListStore`, `CustomLists.kt` | | Planned | AniList lists, MAL tags, local when signed out |
 
 ## Screen
