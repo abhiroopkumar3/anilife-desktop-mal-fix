@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import me.enivzoy.anilife.app.data.AccountAdoption
 import me.enivzoy.anilife.app.data.AniListRepository
 import me.enivzoy.anilife.app.data.MyAnimeListEntry
 import me.enivzoy.anilife.app.data.MyAnimeListSync
@@ -95,7 +96,7 @@ fun MyAnimeListScreen(repository: AniListRepository) {
                             loading = true
                             error = null
                             try {
-                                MyAnimeListSync.connect()
+                                AccountAdoption.connectMyAnimeList()
                                 refreshMalList()
                             } catch (cancelled: CancellationException) {
                                 throw cancelled

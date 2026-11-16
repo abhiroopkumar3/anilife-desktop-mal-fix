@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import me.enivzoy.anilife.app.data.AccountAdoption
 import me.enivzoy.anilife.app.data.AniListConnection
 import me.enivzoy.anilife.app.data.AniListRepository
 import me.enivzoy.anilife.app.data.AniListSync
@@ -213,7 +214,7 @@ fun AniListAccountSettings(repository: AniListRepository) {
                         scope.launch {
                             actionError = null
                             try {
-                                AniListSync.connect(tokenText)
+                                AccountAdoption.connectAniList(tokenText)
                                 tokenText = ""
                                 showTokenField = false
                             } catch (cancelled: CancellationException) {

@@ -26,7 +26,7 @@ Status: **Done** (ported and tested), **Planned**, **Not ported** (no Windows eq
 | `LibraryStore.hydrateRemoteLibrary` | | Planned | Saved titles union, Continue Watching reconcile |
 | `mergeWatchlistEntries` | `data/LibrarySyncRules.kt` | Done (rule) | `WatchlistRemovalTest` ported (7) plus one date-kept case. Wiring: Planned |
 | `historyAfterRemoteProgress`, `remoteRowEpisode`, `remoteMovesOffWatching`, `isFinishedSeriesLeftover` | `data/LibrarySyncRules.kt` | Done (rules), reduced | `RemoteProgressReconcileTest` ported (19). Windows rows have no watched-episode set, so the set is not filled in and "finished" means past 90% of the last episode. Wiring and seeding: Planned |
-| `AccountAdoption` (one active account) | | Planned | Connecting one account logs the other out |
+| `AccountAdoption` (one active account) | `data/AccountAdoption.kt` | Done, partly | New sign-in succeeds first, then the other service is logged out and its cached list cleared. Both-connected users keep the most recent sign-in (AniList if unknown). Pushing saved titles to the new account: Planned |
 | `LibraryStore.syncSavedToRemote` | | Planned | Gated by the "sync saved" setting |
 | `planMediaListProgressUpdate`, `saveMalProgress` | | Planned | MAL progress rules during playback |
 | `WatchActivityStore`, `mergedActivity`, `activityStreak` | | Planned | Activity grid |

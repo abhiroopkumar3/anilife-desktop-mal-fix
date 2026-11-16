@@ -131,6 +131,7 @@ object AniListSync {
     }
 
     suspend fun disconnect() = mutex.withLock {
+        mutableUser.value?.id?.let(listStore::clear)
         credentialStore.delete()
         legacyTokenFile().delete()
         credentials = null
