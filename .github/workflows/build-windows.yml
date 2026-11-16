@@ -3,7 +3,7 @@ name: Build Windows installers
 # Builds the Windows installers (.msi and .exe, installed and portable) from the code on main and
 # uploads them as the artifact "Anilife-Windows-Installers" (kept 90 days).
 # On success it starts "Publish release from a build run", which tags and publishes the release.
-# The version comes from "defaultVersion" in app/build.gradle.kts.
+# The version comes from fork-version.properties (<base>-AK<revision>).
 
 on:
   workflow_dispatch:
@@ -35,13 +35,15 @@ jobs:
       - name: Run tests
         run: .\gradlew test --no-daemon --no-configuration-cache
 
-      # Version comes from the tag (v1.2.3 -> 1.2.3), otherwise from app/build.gradle.kts.
+      # Version comes from the tag (v1.2.3 -> 1.2.3), otherwise from fork-version.properties.
       - name: Resolve version
         run: |
           if ($env:GITHUB_REF -like 'refs/tags/v*') {
             $v = $env:GITHUB_REF_NAME.TrimStart('v')
           } else {
-            $v = (Select-String -Path app/build.gradle.kts -Pattern 'val defaultVersion = "([^"]+)"').Matches[0].Groups[1].Value
+            $props = @{}
+            Get-Content fork-version.properties | ForEach-Object { if ($_ -match '^\s*(base|revision)\s*=\s*(\S+)\s*$') { $props[$Matches[1]] = $Matches[2] } }
+            $v = "$($props['base'])-AK$($props['revision'])"
           }
           if ($v -notmatch '^\d+\.\d+\.\d+(-AK\d+)?$') { throw "Version '$v' must look like 1.2.3 or 1.2.3-AK1" }
           "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8

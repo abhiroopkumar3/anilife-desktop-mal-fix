@@ -1,7 +1,7 @@
 name: Publish release from a build run
 
 # Takes the installers from a successful "Build Windows installers" run and publishes them as a
-# GitHub release tagged v<version> (version from "defaultVersion" in app/build.gradle.kts).
+# GitHub release tagged v<version> (version from fork-version.properties).
 # If the release already exists, its files are replaced. The app's updater reads this repo's
 # latest release, so the file ending in .base.exe must be present.
 # The build starts this workflow itself; you can also run it by hand with a run ID.
@@ -56,7 +56,7 @@ jobs:
           SHA: ${{ steps.run.outputs.sha }}
         shell: bash
         run: |
-          version=$(grep -oP 'val defaultVersion = "\K[^"]+' app/build.gradle.kts)
+          version="$(grep -oP '^base=\K\S+' fork-version.properties)-AK$(grep -oP '^revision=\K\S+' fork-version.properties)"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-AK[0-9]+)?$ ]] || { echo "Bad version '$version'"; exit 1; }
           tag="v$version"
 

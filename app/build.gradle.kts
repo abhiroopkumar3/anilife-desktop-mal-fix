@@ -51,9 +51,10 @@ dependencies {
 }
 
 // Overridable from CI: -PappVersion=1.2.3 -Pportable=true
-val defaultVersion = "1.0.6-AK3"
+val defaultVersion = "1.0.7"
 val appVersion = providers.gradleProperty("appVersion").orNull ?: defaultVersion
 // Windows installers only accept x.y.z, so a fork suffix such as "-AK2" stays out of the package version.
+// This fork's release names come from fork-version.properties and arrive here as -PappVersion.
 val packageSemver = Regex("""^\d+\.\d+\.\d+""").find(appVersion)?.value ?: appVersion
 val portableBuild = providers.gradleProperty("portable").orNull == "true"
 val generatedVersionResources = layout.buildDirectory.dir("generated/versionResources")

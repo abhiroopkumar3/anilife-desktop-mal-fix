@@ -32,7 +32,7 @@ conflicting files in its log. A new release appears only when the version number
 **Force build** on the sync to build anyway. A fork-only change with the same version number does not
 reach installed apps, because the updater only offers a higher version.
 
-**Version names.** Releases here are named after the original's version plus this fork's patch number, for example `1.0.6-AK1`, `1.0.6-AK2`. They never run ahead of the original project's own numbers, and the updater ranks `1.0.6-AK2` above `1.0.6` and below `1.0.7`. To ship a fork-only change, raise the number in `defaultVersion` in `app/build.gradle.kts` (`-AK3`, and so on). The installer itself still uses the plain `1.0.6` inside, so to install over a different build, uninstall the old one first.
+**Version names.** Releases here are named after the original's newest published release plus this fork's own revision number, for example `1.0.6-AK3`. The name comes from `fork-version.properties`: `base` follows the original project (the weekly sync moves it up by itself once the original publishes a newer release, and the revision starts again at 1), and `revision` is raised by hand when this fork ships changes of its own. The original's version line in `app/build.gradle.kts` is left as upstream writes it, so their version bumps never conflict. The updater ranks `1.0.6-AK3` above `1.0.6` and below `1.0.7`. The installer itself still uses the plain `1.0.6` inside, because Windows installers only accept numbers, so to install over a different build, uninstall the old one first.
 
 To run a workflow by hand, open the **Actions** tab, pick it and use **Run workflow**.
 
