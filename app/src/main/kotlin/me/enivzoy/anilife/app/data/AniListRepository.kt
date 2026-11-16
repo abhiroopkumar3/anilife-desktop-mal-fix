@@ -114,6 +114,8 @@ class AniListRepository(
         return titles.mapKeys { it.key.toDouble() }
     }
 
+    suspend fun cardsByMalIds(malIds: List<Long>): List<AnimeCard> = client.cardsByMalIds(malIds)
+
     fun addToLibrary(anime: AnimeCard) = library.add(anime)
 
     fun addToLibrary(anime: List<AnimeCard>) = library.addAll(anime)

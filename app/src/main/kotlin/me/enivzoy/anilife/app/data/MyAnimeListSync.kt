@@ -125,6 +125,29 @@ object MyAnimeListSync {
         }.orEmpty()
     }
 
+    /**
+     * The whole MAL list the way Android reads it: every page, with episode totals, rewatch flag,
+     * update time and tags. Capped at 50 pages so a bad `next` link cannot loop forever.
+     */
+    suspend fun rows(): List<MalListRow> = mutex.withLock {
+        val token = accessToken(tokens ?: error("Connect a MyAnimeList account first."))
+        val rows = mutableListOf<MalListRow>()
+        var url: String? = "$API/users/@me/animelist?fields=${encode(MAL_LIST_FIELDS)}&limit=1000&nsfw=true"
+        var pages = 0
+        while (url != null && pages < 50) {
+            val request = HttpRequest.newBuilder(URI.create(url))
+                .header("Authorization", "Bearer $token")
+                .GET().build()
+            val response = withContext(Dispatchers.IO) { http.send(request, HttpResponse.BodyHandlers.ofString()) }
+            check(response.statusCode() in 200..299) { "MyAnimeList list request failed (${response.statusCode()})." }
+            val (page, next) = parseMalListPage(response.body())
+            rows += page
+            url = next
+            pages++
+        }
+        rows
+    }
+
     suspend fun syncCompletedEpisode(malId: Long, watched: Int) = mutex.withLock {
         val current = tokens ?: return@withLock
         val token = accessToken(current)

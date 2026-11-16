@@ -22,7 +22,7 @@ Status: **Done** (ported and tested), **Planned**, **Not ported** (no Windows eq
 
 | Android | Windows | Status | Notes |
 |---|---|---|---|
-| `MiruroRepository.malAnimeList` (MAL list as `MediaListEntry`) | | Planned | One list model for both services |
+| `MiruroRepository.malAnimeList` (MAL list as `MediaListEntry`) | `data/MalListModel.kt`, `MyAnimeListSync.rows()` | Done, one difference | Paged read with Android's fields, status maps, episode ceiling and clamp ported. MAL ids are joined to AniList by `idMal_in` only; Android first tries the Konoha CDN id map. Not wired into the screen yet |
 | `LibraryStore.hydrateRemoteLibrary` | | Planned | Saved titles union, Continue Watching reconcile |
 | `mergeWatchlistEntries` | `data/LibrarySyncRules.kt` | Done (rule) | `WatchlistRemovalTest` ported (7) plus one date-kept case. Wiring: Planned |
 | `historyAfterRemoteProgress`, `remoteRowEpisode`, `remoteMovesOffWatching`, `isFinishedSeriesLeftover` | `data/LibrarySyncRules.kt` | Done (rules), reduced | `RemoteProgressReconcileTest` ported (19). Windows rows have no watched-episode set, so the set is not filled in and "finished" means past 90% of the last episode. Wiring and seeding: Planned |
