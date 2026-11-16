@@ -27,7 +27,7 @@ import java.time.Duration
 import java.time.Instant
 
 private const val DEFAULT_MANIFEST_URL =
-    "https://api.github.com/repos/anilifecommunity/kotlindesktop/releases/latest"
+    "https://api.github.com/repos/abhiroopkumar3/anilife-desktop-mal-fix/releases/latest"
 
 /**
  * Checks the latest GitHub release without following its installer asset redirect. The parser
