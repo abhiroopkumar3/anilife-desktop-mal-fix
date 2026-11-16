@@ -6,8 +6,7 @@ package me.enivzoy.anilife.app.data
  * `historyAfterRemoteProgress`, `remoteRowEpisode`, `remoteMovesOffWatching`,
  * `isFinishedSeriesLeftover`). Keep both in step; see PARITY.md.
  *
- * Windows has no per-episode watched set, so the two rules that read one are narrowed to what the
- * Continue Watching row can say. Those two spots are listed under "Differences" in PARITY.md.
+ * The watched set lives on [ContinueEntry.watched], as on Android's `HistoryEntry`.
  */
 
 /**
@@ -56,10 +55,11 @@ fun remoteRowEpisode(progress: Int, totalEpisodes: Int?, airedEpisodes: Int?): I
 }
 
 /**
- * Fold the account's episode count into a row this device wrote itself. The local row wins
- * whenever it is level or ahead; advancing clears the resume position because it belonged to an
- * episode finished elsewhere, and carries the other device's timestamp so Continue Watching does
- * not claim the viewer watched it just now. Null means nothing changed.
+ * Fold the account's episode count into a row this device wrote itself (Android's
+ * `historyAfterRemoteProgress`). Everything up to the count counts as watched, since that is all
+ * AniList and MAL store, so the set grows even when the row is already far enough along. The local
+ * row wins whenever it is level or ahead; advancing clears the resume position and carries the other
+ * device's timestamp. Null means nothing changed.
  *
  * [remoteUpdatedAt] is epoch milliseconds, the unit [ContinueEntry.updatedAt] uses.
  */
@@ -72,12 +72,40 @@ fun continueAfterRemoteProgress(
 ): ContinueEntry? {
     if (remoteProgress < 1) return null
     val target = remoteRowEpisode(remoteProgress, totalEpisodes, airedEpisodes)?.toDouble() ?: return null
-    if (target <= local.progress.episode) return null
+    val watched = local.watched + generateSequence(1.0) { it + 1.0 }.takeWhile { it <= remoteProgress }.toSet()
+    if (target <= local.progress.episode) {
+        if (watched == local.watched) return null
+        return local.copy(watched = watched)
+    }
     return local.copy(
-        progress = local.progress.copy(episode = target, position = 0.0),
+        progress = ContinueProgress(target, 0.0, 0.0),
         updatedAt = maxOf(local.updatedAt, remoteUpdatedAt),
+        watched = watched,
     )
 }
+
+/**
+ * Move Continue Watching past an episode that crossed the watched threshold (Android's
+ * `historyAfterEpisodeWatched`). The row only changes when it still points at the episode being
+ * completed, which makes late player callbacks harmless. Null means the known final episode was
+ * completed and the row should be removed.
+ */
+fun continueAfterEpisodeWatched(
+    existing: ContinueEntry,
+    watchedEpisode: Double,
+    nextEpisode: Double?,
+    seriesCompleted: Boolean,
+): ContinueEntry? {
+    if (existing.progress.episode != watchedEpisode) return existing
+    val watched = existing.watched + watchedEpisode
+    if (seriesCompleted) return null
+    val next = nextEpisode?.takeIf { it > watchedEpisode } ?: return existing.copy(watched = watched)
+    return existing.copy(progress = ContinueProgress(next, 0.0, 0.0), fromRemote = false, watched = watched)
+}
+
+/** Android's `shouldRecordWatchActivity`: only a genuinely new completion of the row's own episode counts. */
+fun shouldRecordWatchActivity(existing: ContinueEntry, watchedEpisode: Double): Boolean =
+    existing.progress.episode == watchedEpisode && watchedEpisode !in existing.watched
 
 private val WATCHING_STATUSES = setOf("CURRENT", "REPEATING")
 private val OFF_WATCHING_STATUSES = setOf("COMPLETED", "DROPPED", "PAUSED")
@@ -93,15 +121,13 @@ fun remoteMovesOffWatching(previous: Map<Long, String>, current: Map<Long, Strin
     }.keys
 
 /**
- * Whether a Continue Watching row is what a finished series left behind: the account says
- * COMPLETED, and the row sits on the series' last episode and has been played through.
- *
- * Android reads "watched" from its per-episode set. Windows has none, so a row counts as played
- * through once it is past 90% of the episode (the same line [ContinueStore.positionFor] uses).
+ * Whether a Continue Watching row is what a finished series left behind: the account says COMPLETED,
+ * and the row sits on the series' last episode with that episode already watched here (Android's
+ * `isFinishedSeriesLeftover`). A rewatch is not mistaken for one: it sits on an earlier episode, or
+ * on a final episode not yet finished, and either keeps its row.
  */
 fun isFinishedSeriesLeftover(row: ContinueEntry, status: String?, totalEpisodes: Int?): Boolean {
     if (status != "COMPLETED") return false
     val total = totalEpisodes?.takeIf { it > 0 } ?: return false
-    val p = row.progress
-    return p.episode >= total && p.duration > 0.0 && p.position >= p.duration * 0.9
+    return row.progress.episode >= total && row.progress.episode in row.watched
 }

@@ -68,6 +68,9 @@ fun hydrateFromAccount(
                         anime = entry.anime,
                         progress = ContinueProgress(episode.toDouble(), 0.0, SEEDED_EPISODE_SECONDS),
                         updatedAt = entry.updatedAt * 1000L,
+                        // A list service stores only a count, so everything up to it counts as watched.
+                        watched = generateSequence(1.0) { it + 1.0 }.takeWhile { it <= entry.progress }.toSet(),
+                        fromRemote = true,
                     )
                 }
             }

@@ -9,8 +9,8 @@ class LibraryHydrationTest {
     private fun card(id: Long, episodes: Int? = 12) = AnimeCard(id = id, title = "T$id", episodes = episodes)
     private fun entry(id: Long, status: String, progress: Int = 0, hidden: Boolean = false, episodes: Int? = 12) =
         ListEntry(card(id, episodes), status, progress, updatedAt = 100, hiddenFromStatusLists = hidden)
-    private fun row(id: Long, episode: Double, position: Double = 0.0, duration: Double = 1400.0) =
-        ContinueEntry(card(id), ContinueProgress(episode, position, duration), 50_000)
+    private fun row(id: Long, episode: Double, position: Double = 0.0, duration: Double = 1400.0, watched: Set<Double> = emptySet()) =
+        ContinueEntry(card(id), ContinueProgress(episode, position, duration), 50_000, watched)
     private fun hydrate(
         remote: List<ListEntry>,
         saves: List<LocalSave> = emptyList(),
@@ -49,6 +49,8 @@ class LibraryHydrationTest {
         assertEquals(5.0, upsert.progress.episode)
         assertEquals(0.0, upsert.progress.position)
         assertEquals(100_000L, upsert.updatedAt)
+        assertEquals(setOf(1.0, 2.0, 3.0, 4.0), upsert.watched)
+        assertTrue(upsert.fromRemote)
     }
 
     @Test
@@ -67,7 +69,7 @@ class LibraryHydrationTest {
         val ahead = hydrate(listOf(entry(1, "CURRENT", progress = 8)), rows = listOf(row(1, 3.0)))
         assertEquals(9.0, ahead.continueUpserts.single().progress.episode)
         val behind = hydrate(listOf(entry(1, "CURRENT", progress = 2)), rows = listOf(row(1, 6.0)))
-        assertTrue(behind.continueUpserts.isEmpty())
+        assertEquals(6.0, behind.continueUpserts.singleOrNull()?.progress?.episode ?: 6.0)
     }
 
     @Test
@@ -90,7 +92,7 @@ class LibraryHydrationTest {
     fun `a finished series leaves no row behind`() {
         val result = hydrate(
             remote = listOf(entry(1, "COMPLETED", 12)),
-            rows = listOf(row(1, 12.0, position = 1350.0)),
+            rows = listOf(row(1, 12.0, watched = setOf(12.0))),
             previous = mapOf(1L to "COMPLETED"),
         )
         assertEquals(setOf(1L), result.continueRemovals)

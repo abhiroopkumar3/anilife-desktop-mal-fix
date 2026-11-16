@@ -211,6 +211,9 @@ fun PlayerScreen(
             )
         }
     }
+    // Once an episode has been counted as watched the row has moved on (or been removed); the
+    // periodic saves below must not put it back.
+    var episodeCounted by remember(animeCard?.id, episode) { mutableStateOf(false) }
     val currentPos = rememberUpdatedState(positionSeconds)
     val currentDur = rememberUpdatedState(durationSeconds)
     val currentEp = rememberUpdatedState(episode)
@@ -219,6 +222,7 @@ fun PlayerScreen(
         while (true) {
             kotlinx.coroutines.delay(10_000L)
             val ep = currentEp.value ?: continue
+            if (episodeCounted) continue
             ContinueStoreInstance.upsert(animeCard, ep, currentPos.value, currentDur.value)
         }
     }
@@ -226,6 +230,7 @@ fun PlayerScreen(
         onDispose {
             val a = animeCard ?: return@onDispose
             val ep = currentEp.value ?: return@onDispose
+            if (episodeCounted) return@onDispose
             ContinueStoreInstance.upsert(a, ep, currentPos.value, currentDur.value)
         }
     }
@@ -342,6 +347,27 @@ fun PlayerScreen(
             val watched = episode ?: return@LaunchedEffect
             aniListSubmitted = true
             AniListSync.syncCompletedEpisode(anime, watched)
+        }
+    }
+
+    // The watched threshold is the share the account submit already uses; at 100 only the end counts.
+    LaunchedEffect(engine, settings.aniListSubmitPercent, animeCard?.id, episode) {
+        val player = engine ?: return@LaunchedEffect
+        val anime = animeCard ?: return@LaunchedEffect
+        val watched = episode ?: return@LaunchedEffect
+        while (!episodeCounted) {
+            kotlinx.coroutines.delay(1000)
+            val duration = player.durationSeconds
+            val reached = player.hasEnded || (
+                settings.aniListSubmitPercent < 100 && duration > 0.0 &&
+                    player.positionSeconds / duration * 100.0 >= settings.aniListSubmitPercent
+                )
+            if (!reached) continue
+            episodeCounted = true
+            val total = anime.episodes?.takeIf { it > 0 }
+            ContinueStoreInstance.markEpisodeWatched(
+                anime.id, watched, nextEpisode.value, seriesCompleted = total != null && watched >= total,
+            )
         }
     }
 

@@ -64,8 +64,10 @@ class WatchlistRemovalTest {
 }
 
 class RemoteProgressReconcileTest {
-    private fun local(episode: Double, position: Double = 0.0, duration: Double = 1400.0, updatedAt: Long = 1_000) =
-        ContinueEntry(card(21), ContinueProgress(episode, position, duration), updatedAt)
+    private fun local(
+        episode: Double, position: Double = 0.0, duration: Double = 1400.0, updatedAt: Long = 1_000,
+        watched: Set<Double> = emptySet(),
+    ) = ContinueEntry(card(21), ContinueProgress(episode, position, duration), updatedAt, watched)
 
     @Test
     fun `episodes finished on another device move this row forward`() {
@@ -75,7 +77,8 @@ class RemoteProgressReconcileTest {
 
     @Test
     fun `a row further along than the account is left alone`() {
-        assertNull(continueAfterRemoteProgress(local(12.0), 8, 5_000, 1000))
+        // The set still grows, but the row stays where it is.
+        assertEquals(12.0, continueAfterRemoteProgress(local(12.0), 8, 5_000, 1000)?.progress?.episode)
     }
 
     @Test
@@ -111,7 +114,7 @@ class RemoteProgressReconcileTest {
 
     @Test
     fun `a caught-up row on an airing series stays on the last aired episode`() {
-        assertNull(continueAfterRemoteProgress(local(10.0), 10, 5_000, 26, airedEpisodes = 10))
+        assertEquals(10.0, continueAfterRemoteProgress(local(10.0), 10, 5_000, 26, airedEpisodes = 10)?.progress?.episode)
     }
 
     @Test
@@ -160,24 +163,87 @@ class RemoteProgressReconcileTest {
 
     @Test
     fun `a watched final episode on a completed title is a leftover`() {
-        assertTrue(isFinishedSeriesLeftover(local(13.0, position = 1350.0), "COMPLETED", 13))
+        assertTrue(isFinishedSeriesLeftover(local(13.0, watched = setOf(13.0)), "COMPLETED", 13))
     }
 
     @Test
     fun `a rewatch on an earlier episode is not a leftover`() {
-        assertFalse(isFinishedSeriesLeftover(local(4.0, position = 1350.0), "COMPLETED", 13))
+        assertFalse(isFinishedSeriesLeftover(local(4.0, watched = setOf(4.0)), "COMPLETED", 13))
     }
 
     @Test
     fun `an unfinished final episode is not a leftover`() {
-        assertFalse(isFinishedSeriesLeftover(local(13.0, position = 600.0), "COMPLETED", 13))
+        assertFalse(isFinishedSeriesLeftover(local(13.0, position = 600.0, watched = setOf(1.0, 2.0)), "COMPLETED", 13))
     }
 
     @Test
     fun `only a completed title with a known length can leave one`() {
-        val row = local(13.0, position = 1350.0)
+        val row = local(13.0, watched = setOf(13.0))
         assertFalse(isFinishedSeriesLeftover(row, "CURRENT", 13))
         assertFalse(isFinishedSeriesLeftover(row, "COMPLETED", null))
         assertFalse(isFinishedSeriesLeftover(row, "COMPLETED", 0))
+    }
+
+    @Test
+    fun `everything up to the account's count is marked watched, even on a row that is already ahead`() {
+        val updated = continueAfterRemoteProgress(local(12.0), 4, 5_000, 1000)
+        assertEquals(setOf(1.0, 2.0, 3.0, 4.0), updated?.watched)
+        assertEquals(12.0, updated?.progress?.episode)
+    }
+
+    @Test
+    fun `nothing changes when the set already covers the count and the row is ahead`() {
+        assertNull(continueAfterRemoteProgress(local(12.0, watched = setOf(1.0, 2.0, 3.0, 4.0)), 4, 5_000, 1000))
+    }
+
+    @Test
+    fun `an advanced row carries the whole watched set`() {
+        assertEquals((1..8).map { it.toDouble() }.toSet(), continueAfterRemoteProgress(local(3.0), 8, 5_000, 1000)?.watched)
+    }
+}
+
+class EpisodeWatchedTest {
+    private fun row(episode: Double, watched: Set<Double> = emptySet()) =
+        ContinueEntry(card(5), ContinueProgress(episode, 1300.0, 1400.0), 1_000, watched)
+
+    @Test
+    fun `finishing an episode records it and moves the row to the next`() {
+        val updated = continueAfterEpisodeWatched(row(3.0), 3.0, 4.0, seriesCompleted = false)
+        assertEquals(4.0, updated?.progress?.episode)
+        assertEquals(setOf(3.0), updated?.watched)
+        assertEquals(0.0, updated?.progress?.position)
+        assertFalse(updated?.fromRemote ?: true)
+    }
+
+    @Test
+    fun `with no next episode the row stays and still records the episode`() {
+        val updated = continueAfterEpisodeWatched(row(3.0), 3.0, null, seriesCompleted = false)
+        assertEquals(3.0, updated?.progress?.episode)
+        assertEquals(setOf(3.0), updated?.watched)
+    }
+
+    @Test
+    fun `finishing the last episode removes the row`() {
+        assertNull(continueAfterEpisodeWatched(row(12.0), 12.0, null, seriesCompleted = true))
+    }
+
+    @Test
+    fun `a late callback for an episode the row has left changes nothing`() {
+        val r = row(4.0, setOf(3.0))
+        assertEquals(r, continueAfterEpisodeWatched(r, 3.0, 4.0, seriesCompleted = false))
+    }
+
+    @Test
+    fun `activity counts only a new completion of the row's own episode`() {
+        assertTrue(shouldRecordWatchActivity(row(3.0), 3.0))
+        assertFalse(shouldRecordWatchActivity(row(3.0, setOf(3.0)), 3.0))
+        assertFalse(shouldRecordWatchActivity(row(4.0), 3.0))
+    }
+
+    @Test
+    fun `a legacy row is seeded with every whole episode below the one in progress`() {
+        assertEquals(setOf(1.0, 2.0, 3.0), seededLegacyWatched(4.0))
+        assertEquals(emptySet<Double>(), seededLegacyWatched(1.0))
+        assertEquals(setOf(1.0, 2.0, 3.0), seededLegacyWatched(3.5))
     }
 }
