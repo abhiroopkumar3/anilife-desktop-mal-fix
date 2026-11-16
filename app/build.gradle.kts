@@ -51,7 +51,7 @@ dependencies {
 }
 
 // Overridable from CI: -PappVersion=1.2.3 -Pportable=true
-val defaultVersion = "1.0.6-AK2"
+val defaultVersion = "1.0.6-AK3"
 val appVersion = providers.gradleProperty("appVersion").orNull ?: defaultVersion
 // Windows installers only accept x.y.z, so a fork suffix such as "-AK2" stays out of the package version.
 val packageSemver = Regex("""^\d+\.\d+\.\d+""").find(appVersion)?.value ?: appVersion
