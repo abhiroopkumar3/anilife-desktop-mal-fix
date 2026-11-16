@@ -30,6 +30,8 @@ data class MalExportFile(
     val xml: String,
     val exportedCount: Int,
     val skippedCount: Int,
+    /** Something to tell the viewer about how the file was made, such as an account that was unreachable. */
+    val note: String? = null,
 )
 
 object MalExport {
@@ -72,6 +74,33 @@ object MalExport {
             appendLine("</myanimelist>")
         }
         return MalExportFile(fileName, xml, entries.size, skippedCount)
+    }
+
+    /** An account list status as the XML spells it, and whether the title is being rewatched. */
+    fun statusFromAccount(status: AniListListStatus): Pair<String, Boolean> = when (status) {
+        AniListListStatus.CURRENT -> "Watching" to false
+        AniListListStatus.REPEATING -> "Watching" to true
+        AniListListStatus.COMPLETED -> "Completed" to false
+        AniListListStatus.PAUSED -> "On-Hold" to false
+        AniListListStatus.DROPPED -> "Dropped" to false
+        AniListListStatus.PLANNING -> "Plan to Watch" to false
+    }
+
+    /** One account list entry as an export row; a finished title with no count recorded counts as all watched. */
+    fun entryFromAccount(entry: AccountEntry): MalExportEntry? {
+        val malId = entry.malId ?: return null
+        val (status, rewatching) = statusFromAccount(entry.status)
+        val watched = if (status == "Completed" && entry.progress <= 0 && entry.episodes != null) entry.episodes else entry.progress
+        return MalExportEntry(
+            malId = malId,
+            title = entry.title,
+            format = entry.format,
+            episodes = entry.episodes,
+            watchedEpisodes = watched,
+            score = entry.score,
+            status = status,
+            rewatching = rewatching,
+        )
     }
 
     fun statusFromLocal(progress: Int, episodes: Int?): String = when {
@@ -119,6 +148,8 @@ data class MalImportSummary(
     val added: Int,
     val alreadySaved: Int,
     val unmatched: Int,
+    /** What happened to the signed-in account's Plan to Watch, when this import touched it. */
+    val accountNote: String? = null,
 )
 
 object MalImport {

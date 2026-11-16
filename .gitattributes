@@ -1,0 +1,2 @@
+# The golden files are compared byte for byte, so Git must not rewrite their line endings on checkout.
+app/src/test/resources/golden/* -text

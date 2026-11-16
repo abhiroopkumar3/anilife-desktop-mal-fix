@@ -74,6 +74,8 @@ data class AppSettings(
     val volume: Int = 100,
     val subtitleScale: Float = 1f,
     val aniListSubmitPercent: Int = 80,
+    /** Add titles saved by a restore or an import to the signed-in account's Plan to Watch. */
+    val syncSavedToAccount: Boolean = true,
     val checkUpdatesOnLaunch: Boolean = true,
     val captionFont: String = "sans-serif",
     val captionFontFile: String = "",
@@ -145,6 +147,7 @@ class AppSettingsStore(private val file: File = settingsFile()) {
             autoplayNextEpisode = properties.getProperty("autoplayNextEpisode", "true").toBooleanStrictOrNull() ?: true,
             aniListSubmitPercent = properties.getProperty("aniListSubmitPercent", "80")
                 .toIntOrNull()?.coerceIn(1, 100) ?: 80,
+            syncSavedToAccount = properties.getProperty("syncSavedToAccount", "true").toBooleanStrictOrNull() ?: true,
             resumePlayback = properties.getProperty("resumePlayback", "true").toBooleanStrictOrNull() ?: true,
             hardwareDecoding = properties.getProperty("hardwareDecoding", "true").toBooleanStrictOrNull() ?: true,
             playbackBufferSize = properties.getProperty("playbackBufferSize", "auto"),
@@ -199,6 +202,7 @@ class AppSettingsStore(private val file: File = settingsFile()) {
             setProperty("subtitlesByDefault", settings.subtitlesByDefault.toString())
             setProperty("autoplayNextEpisode", settings.autoplayNextEpisode.toString())
             setProperty("aniListSubmitPercent", settings.aniListSubmitPercent.toString())
+            setProperty("syncSavedToAccount", settings.syncSavedToAccount.toString())
             setProperty("resumePlayback", settings.resumePlayback.toString())
             setProperty("hardwareDecoding", settings.hardwareDecoding.toString())
             setProperty("playbackBufferSize", settings.playbackBufferSize)

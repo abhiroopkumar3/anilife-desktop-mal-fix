@@ -64,6 +64,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -1189,7 +1190,8 @@ private fun DataSettings(
     repository: AniListRepository,
 ) {
     val scope = rememberCoroutineScope()
-    val transfer = remember(repository) { DataTransfer(repository) }
+    val latestSettings by rememberUpdatedState(settings)
+    val transfer = remember(repository) { DataTransfer(repository, syncSaved = { latestSettings.syncSavedToAccount }) }
     var busy by remember { mutableStateOf<String?>(null) }
     var result by remember { mutableStateOf<DataResult?>(null) }
     var pendingRestore by remember { mutableStateOf<BackupDocument?>(null) }
@@ -1244,6 +1246,7 @@ private fun DataSettings(
             val extras = buildList {
                 if (summary.notRestored.isNotEmpty()) add("Not carried over: ${summary.notRestored.joinToString(", ")}.")
                 addAll(summary.warnings)
+                summary.accountNote?.let(::add)
             }
             DataResult(("Restored ${summary.describe()}. " + extras.joinToString(" ")).trim())
         }
@@ -1263,7 +1266,8 @@ private fun DataSettings(
                 ?: return@run DataResult("Export cancelled.")
             withContext(Dispatchers.IO) { java.nio.file.Files.writeString(target, export.xml) }
             val skipped = if (export.skippedCount > 0) " ${export.skippedCount} without a MyAnimeList id were left out." else ""
-            DataResult("Exported ${export.exportedCount} anime to ${target.fileName}.$skipped")
+            val note = export.note?.let { " $it" }.orEmpty()
+            DataResult("Exported ${export.exportedCount} anime to ${target.fileName}.$skipped$note")
         }
     }
 
@@ -1282,7 +1286,8 @@ private fun DataSettings(
                 if (summary.alreadySaved > 0) add("${summary.alreadySaved} already saved")
                 if (summary.unmatched > 0) add("${summary.unmatched} not found on AniList")
             }
-            DataResult("Imported ${summary.totalEntries} entries: ${parts.joinToString(", ")}.")
+            val account = summary.accountNote?.let { " $it" }.orEmpty()
+            DataResult("Imported ${summary.totalEntries} entries: ${parts.joinToString(", ")}.$account")
         }
     }
 
@@ -1295,6 +1300,17 @@ private fun DataSettings(
             "Restore from a backup",
             "Replaces the shared settings; adds saved anime and history to this PC. Works with files from the Android app.",
         ) { SettingsButton(text = "Restore", enabled = busy == null, onClick = ::chooseBackup) }
+    }
+    SettingsSection("Saved titles and your account") {
+        SettingsRow(
+            "Add saved titles to my account",
+            "After a restore or an import, titles saved here that your signed-in MyAnimeList or AniList " +
+                "account does not have are added to its Plan to Watch. Titles already on your list are never changed.",
+        ) {
+            SettingsSwitch(settings.syncSavedToAccount) { enabled ->
+                onSettingsChange { it.copy(syncSavedToAccount = enabled) }
+            }
+        }
     }
     SettingsSection("MyAnimeList files") {
         SettingsRow(

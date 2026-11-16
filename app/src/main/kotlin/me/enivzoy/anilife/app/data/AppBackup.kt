@@ -81,6 +81,8 @@ data class RestoreSummary(
     /** Things in the file this app has no place for, in plain words, for the result line. */
     val notRestored: List<String> = emptyList(),
     val warnings: List<String> = emptyList(),
+    /** What happened to the signed-in account's Plan to Watch, when this restore touched it. */
+    val accountNote: String? = null,
 ) {
     fun describe(): String = buildList {
         if (settings > 0) add("$settings setting${plural(settings)}")
@@ -245,8 +247,8 @@ object AppBackup {
  *
  * The Android app's backup carries about thirty preferences; the Windows app has its own, mostly
  * different, set. Only the ones with a clear counterpart travel: autoplay, dub preference,
- * captions on by default, skipping intros and outros, the skip button length and the caption
- * language. Everything else on this PC is left exactly as it is.
+ * captions on by default, skipping intros and outros, the skip button length, the caption
+ * language and whether saved titles are added to the signed-in account. Everything else on this PC is left exactly as it is.
  */
 object BackupSettings {
     private val languageCodes = mapOf(
@@ -263,6 +265,7 @@ object BackupSettings {
         put("subtitles_by_default", settings.subtitlesByDefault)
         put("auto_skip_intro_outro", settings.autoSkipIntro && settings.autoSkipOutro)
         put("skip_button_seconds", settings.skipButtonSeconds)
+        put("sync_saved_to_anilist", settings.syncSavedToAccount)
         languageCodes[settings.subtitleLanguage]?.let { put("preferred_subtitle_language", it) }
     }
 
@@ -278,6 +281,7 @@ object BackupSettings {
             result = result.copy(autoSkipIntro = it, autoSkipOutro = it)
             applied++
         }
+        bool("sync_saved_to_anilist")?.let { result = result.copy(syncSavedToAccount = it); applied++ }
         (values["skip_button_seconds"] as? JsonPrimitive)?.intOrNull?.let {
             result = result.copy(skipButtonSeconds = it.coerceIn(10, 300))
             applied++

@@ -1,5 +1,6 @@
 package me.enivzoy.anilife.app.data
 
+import kotlinx.coroutines.CancellationException
 import me.enivzoy.anilife.core.model.AnimeCard
 
 /**
@@ -12,6 +13,8 @@ class DataTransfer(
     private val continueStore: ContinueStore = ContinueStoreInstance,
     private val appVersion: () -> String = { Updater.currentVersion() },
     private val now: () -> Long = System::currentTimeMillis,
+    private val accounts: AccountLists = LiveAccountLists(),
+    private val syncSaved: () -> Boolean = { true },
 ) {
     /** Snapshot of everything a backup carries, right now. */
     fun createBackup(settings: AppSettings): BackupDocument {
@@ -114,18 +117,46 @@ class DataTransfer(
                 add("Some titles were saved without their full details because AniList could not be reached. They fill in the next time you use Export MyAnimeList XML while online.")
             }
         }
-        return RestoreSummary(settingsApplied, added, restoredHistory, notRestored, warnings)
+        return RestoreSummary(settingsApplied, added, restoredHistory, notRestored, warnings, pushSavedToAccount())
     }
 
     /**
-     * Build a MyAnimeList XML from the saved library and Continue Watching.
+     * Build a MyAnimeList XML.
      *
-     * Titles without a MyAnimeList id cannot be in the file and are counted as skipped. This app has
-     * no per-title scores or dates of its own, so they are written as MyAnimeList's "none".
+     * With an account signed in, its list comes first (watching, rewatching, completed, on hold,
+     * dropped, planned), then saved titles and Continue Watching rows the account does not have, the
+     * way the Android app orders it. If the account cannot be reached, or none is signed in, the file
+     * is made from this PC's saved titles and Continue Watching alone.
+     *
+     * Titles without a MyAnimeList id cannot be in the file and are counted as skipped. The PC's own
+     * list has no per-title scores or dates, so those are written as MyAnimeList's "none".
      */
     suspend fun buildMalExport(
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
     ): MalExportFile {
+        val service = accounts.active()
+        var note: String? = null
+        val accountEntries: List<AccountEntry> = if (service == null) {
+            emptyList()
+        } else {
+            try {
+                accounts.read()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                note = "${service.label} could not be reached, so this file lists the titles saved on this PC instead."
+                emptyList()
+            }
+        }
+        var skipped = 0
+        val exported = LinkedHashMap<Long, MalExportEntry>()
+        ACCOUNT_ORDER.forEach { status ->
+            accountEntries.filter { it.status == status }.forEach { entry ->
+                val row = MalExport.entryFromAccount(entry)
+                if (row == null) skipped++ else exported.putIfAbsent(row.malId, row)
+            }
+        }
+
         val continueEntries = continueStore.entries.value
         val episodeById = continueEntries.associate { it.anime.id to it.progress.episode.toInt() }
         val cards = LinkedHashMap<Long, AnimeCard>()
@@ -142,13 +173,13 @@ class DataTransfer(
         val saved = repository.libraryEntries.value.map(AnimeCard::id).toSet()
         resolved.values.filter { it.id in saved }.takeIf { it.isNotEmpty() }?.let { repository.addToLibrary(it) }
 
-        var skipped = 0
-        val entries = cards.values.mapNotNull { card ->
+        val localRows = cards.values.mapNotNull { card ->
             val full = resolved[card.id] ?: card
             val malId = full.malId ?: run {
                 skipped++
                 return@mapNotNull null
             }
+            if (malId in exported) return@mapNotNull null
             val progress = episodeById[card.id] ?: 0
             val episodes = full.episodes ?: card.episodes
             MalExportEntry(
@@ -161,7 +192,12 @@ class DataTransfer(
                 status = MalExport.statusFromLocal(progress, episodes),
             )
         }
-        return MalExport.fromEntries(username = null, entries = entries, skippedCount = skipped)
+        val entries = exported.values.toList() + localRows
+        return MalExport.fromEntries(
+            username = accounts.accountName().takeIf { accountEntries.isNotEmpty() },
+            entries = entries,
+            skippedCount = skipped,
+        ).copy(note = note)
     }
 
     /**
@@ -188,10 +224,44 @@ class DataTransfer(
             added = added,
             alreadySaved = matched.distinctBy(AnimeCard::id).size - added,
             unmatched = parsed.size - matched.size,
+            accountNote = pushSavedToAccount(),
         )
     }
 
+    /**
+     * After a restore or an import, add what is saved here to the signed-in account's Plan to Watch,
+     * the way the Android app does. Only titles the account lacks are added; one already on the list
+     * keeps its status, and nothing is removed. Null when there is nothing to say.
+     */
+    private suspend fun pushSavedToAccount(): String? {
+        val service = accounts.active() ?: return null
+        if (!syncSaved()) return null
+        val result = try {
+            accounts.addPlanned(repository.libraryEntries.value)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            return "${service.label} could not be reached, so saved titles were not added to its Plan to Watch."
+        }
+        val parts = buildList {
+            if (result.added > 0) add("${result.added} added to ${service.label} Plan to Watch")
+            if (result.failed > 0) add("${result.failed} could not be added")
+            if (result.withoutId > 0) add("${result.withoutId} have no ${service.label} id")
+        }
+        return parts.joinToString(", ").takeIf(String::isNotEmpty)?.plus(".")
+    }
+
     private companion object {
+        /** The order the Android app writes an account's list in. */
+        val ACCOUNT_ORDER = listOf(
+            AniListListStatus.CURRENT,
+            AniListListStatus.REPEATING,
+            AniListListStatus.COMPLETED,
+            AniListListStatus.PAUSED,
+            AniListListStatus.DROPPED,
+            AniListListStatus.PLANNING,
+        )
+
         /** A typical episode, in seconds, for restored rows whose length was never recorded. */
         const val NOMINAL_EPISODE_SECONDS = 24 * 60.0
     }

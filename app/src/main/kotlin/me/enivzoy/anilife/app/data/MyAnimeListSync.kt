@@ -28,7 +28,22 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 data class MyAnimeListUser(val id: Long, val name: String, val picture: String?)
-data class MyAnimeListEntry(val id: Long, val title: String, val status: String, val watched: Int, val score: Int)
+data class MyAnimeListEntry(
+    val id: Long,
+    val title: String,
+    val status: String,
+    val watched: Int,
+    val score: Int,
+    /** MyAnimeList's own episode count, when it has one. */
+    val episodes: Int? = null,
+    /** MAL's type for the title: tv, movie, ova, ona, special, music... */
+    val mediaType: String? = null,
+    /** A rewatch is `completed` on MAL with this flag set. */
+    val rewatching: Boolean = false,
+    val tags: List<String> = emptyList(),
+    /** Seconds since the epoch of the last change on MAL, or 0 when unknown. */
+    val updatedAt: Long = 0L,
+)
 
 /** MyAnimeList OAuth and list sync. OAuth tokens stay in the per-user AniLife data directory. */
 object MyAnimeListSync {
@@ -105,24 +120,34 @@ object MyAnimeListSync {
         tokenFile().delete()
     }
 
+    /**
+     * The whole anime list. MAL hands a list over in pages of up to 1,000 and names the next page in
+     * `paging.next`, so a list longer than that is followed to its end instead of cut off.
+     */
     suspend fun list(): List<MyAnimeListEntry> = mutex.withLock {
         val token = accessToken(tokens ?: error("Connect a MyAnimeList account first."))
-        val request = HttpRequest.newBuilder(URI.create("$API/users/@me/animelist?fields=list_status&limit=1000&nsfw=true"))
-            .header("Authorization", "Bearer $token")
-            .GET().build()
-        val root = requestJson(request)
-        root["data"]?.jsonArray?.mapNotNull { item ->
-            val obj = item.jsonObject
-            val node = obj["node"]?.jsonObject ?: return@mapNotNull null
-            val status = obj["list_status"]?.jsonObject ?: return@mapNotNull null
-            MyAnimeListEntry(
-                id = node["id"]?.jsonPrimitive?.content?.toLongOrNull() ?: return@mapNotNull null,
-                title = node["title"]?.jsonPrimitive?.content.orEmpty(),
-                status = status["status"]?.jsonPrimitive?.content.orEmpty(),
-                watched = status["num_episodes_watched"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
-                score = status["score"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+        MalListPages.readAll(MalListPages.firstUrl(API)) { url ->
+            requestJson(
+                HttpRequest.newBuilder(URI.create(url))
+                    .header("Authorization", "Bearer $token")
+                    .GET().build(),
             )
-        }.orEmpty()
+        }
+    }
+
+    /**
+     * Put a title on the list as Plan to Watch. Callers add only titles the list lacks; this never
+     * touches the status of one that is already there, because it is only ever sent for new ones.
+     */
+    suspend fun addPlanned(malId: Long) = mutex.withLock {
+        val token = accessToken(tokens ?: error("Connect a MyAnimeList account first."))
+        val request = HttpRequest.newBuilder(URI.create("$API/anime/$malId/my_list_status"))
+            .header("Authorization", "Bearer $token")
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .method("PATCH", HttpRequest.BodyPublishers.ofString("status=plan_to_watch"))
+            .build()
+        val confirmed = requestJson(request)["status"]?.jsonPrimitive?.contentOrNull
+        check(confirmed == "plan_to_watch") { "MyAnimeList confirmed ${confirmed ?: "no status"} after asking for plan_to_watch." }
     }
 
     suspend fun syncCompletedEpisode(malId: Long, watched: Int) = mutex.withLock {
@@ -272,4 +297,60 @@ object MyAnimeListSync {
     }
 
     private data class Tokens(val accessToken: String, val refreshToken: String, val expiresAt: Long)
+}
+
+/** Reading MAL's anime list a page at a time. Kept apart from the network so it can be tested. */
+internal object MalListPages {
+    /** Named in full: `tags` and `updated_at` are not default fields on MAL. */
+    private const val LIST_STATUS_FIELDS = "status,score,num_episodes_watched,is_rewatching,updated_at,tags"
+    private const val MAX_PAGES = 10
+
+    fun firstUrl(api: String): String {
+        val fields = URLEncoder.encode("list_status{$LIST_STATUS_FIELDS},num_episodes,media_type", StandardCharsets.UTF_8)
+        return "$api/users/@me/animelist?fields=$fields&limit=1000&nsfw=true"
+    }
+
+    suspend fun readAll(
+        firstUrl: String,
+        fetch: suspend (String) -> kotlinx.serialization.json.JsonObject,
+    ): List<MyAnimeListEntry> {
+        val entries = mutableListOf<MyAnimeListEntry>()
+        var url: String? = firstUrl
+        var pages = 0
+        while (url != null && pages < MAX_PAGES) {
+            val root = fetch(url)
+            entries += parse(root)
+            url = root["paging"]?.jsonObject?.get("next")?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+            pages++
+        }
+        return entries
+    }
+
+    fun parse(root: kotlinx.serialization.json.JsonObject): List<MyAnimeListEntry> =
+        root["data"]?.jsonArray?.mapNotNull { item ->
+            val obj = item.jsonObject
+            val node = obj["node"]?.jsonObject ?: return@mapNotNull null
+            val status = obj["list_status"]?.jsonObject ?: return@mapNotNull null
+            MyAnimeListEntry(
+                id = node["id"]?.jsonPrimitive?.content?.toLongOrNull() ?: return@mapNotNull null,
+                title = node["title"]?.jsonPrimitive?.content.orEmpty(),
+                status = status["status"]?.jsonPrimitive?.content.orEmpty(),
+                watched = status["num_episodes_watched"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+                score = status["score"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+                episodes = node["num_episodes"]?.jsonPrimitive?.content?.toIntOrNull()?.takeIf { it > 0 },
+                mediaType = node["media_type"]?.jsonPrimitive?.contentOrNull,
+                rewatching = status["is_rewatching"]?.jsonPrimitive?.content == "true",
+                tags = status["tags"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty(),
+                updatedAt = epochSeconds(status["updated_at"]?.jsonPrimitive?.contentOrNull),
+            )
+        }.orEmpty()
+
+    /** MAL stamps changes like `2018-04-25T22:23:11+00:00`; 0 when a stamp cannot be read. */
+    fun epochSeconds(raw: String?): Long {
+        val value = raw?.trim().orEmpty()
+        if (value.isEmpty()) return 0L
+        return runCatching { java.time.OffsetDateTime.parse(value).toEpochSecond() }
+            .recoverCatching { java.time.Instant.parse(value).epochSecond }
+            .getOrDefault(0L)
+    }
 }

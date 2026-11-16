@@ -287,11 +287,19 @@ class DataTransferTest {
         override fun close() = server.stop(0)
     }
 
-    private class Fixture(val root: Path, val aniList: FakeAniList) : AutoCloseable {
+    private class Fixture(
+        val root: Path,
+        val aniList: FakeAniList,
+        val accounts: AccountLists = NoAccountLists,
+        syncSaved: Boolean = true,
+    ) : AutoCloseable {
         val library = LocalLibraryStore(root.resolve("library.properties").toFile())
         val continueStore = ContinueStore(root.resolve("continue.properties").toFile())
         val repository = AniListRepository(client = aniList.client, library = library)
-        val transfer = DataTransfer(repository, continueStore, appVersion = { "test" }, now = { 5_000L })
+        val transfer = DataTransfer(
+            repository, continueStore, appVersion = { "test" }, now = { 5_000L },
+            accounts = accounts, syncSaved = { syncSaved },
+        )
         override fun close() {
             aniList.close()
             root.toFile().deleteRecursively()
