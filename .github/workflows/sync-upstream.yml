@@ -11,6 +11,11 @@ name: Sync from upstream
 # That version follows the original project: when it publishes a newer release, base moves up and
 # revision starts again at 1 (never ahead of what the original has actually published).
 # "Force build" starts one regardless.
+#
+# The build workflow also starts on its own when a push to main changes fork-version.properties. The
+# pushes below use the built-in token, which GitHub does not let start workflows, so this file's own
+# "Start a build" step is the only thing that builds after a sync. Keep it that way: if these pushes
+# are ever made with a personal access token, the same version would be built twice.
 
 on:
   schedule:

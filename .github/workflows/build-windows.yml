@@ -4,9 +4,26 @@ name: Build Windows installers
 # uploads them as the artifact "Anilife-Windows-Installers" (kept 90 days).
 # On success it starts "Publish release from a build run", which tags and publishes the release.
 # The version comes from fork-version.properties (<base>-AK<revision>).
+#
+# It starts three ways:
+#   - You push a change to fork-version.properties on main (a revision bump). If that version already
+#     has a release the run stops at once, so editing a comment in the file never rebuilds a release.
+#   - "Sync from upstream" starts it itself when the version has no release yet. That sync pushes with
+#     the built-in token, and GitHub does not start workflows from such pushes, so the two never both
+#     fire for the same change. Do not switch the sync to a personal access token without revisiting this.
+#   - You press "Run workflow". This always builds. Untick "Publish" to only get the installers as a
+#     downloadable artifact, without a release.
 
 on:
+  push:
+    branches: [main]
+    paths: [fork-version.properties]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish a release from this build (untick to only upload the installers)"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -17,7 +34,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A push that only touches the comments in fork-version.properties must not rebuild a release.
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.version.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip a push whose version already has a release
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(grep -oP '^base=\K\S+' fork-version.properties)-AK$(grep -oP '^revision=\K\S+' fork-version.properties)"
+          skip=false
+          if [ "${{ github.event_name }}" = "push" ]; then
+            if out=$(gh api "repos/${{ github.repository }}/releases/tags/v$version" 2>&1); then
+              skip=true
+              echo "Release v$version already exists; nothing to build. Raise revision to ship a new version."
+            elif ! echo "$out" | grep -q "Not Found"; then
+              echo "Could not check releases: $out"
+              exit 1
+            fi
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          echo "### Version check" >> "$GITHUB_STEP_SUMMARY"
+          echo "Version \`$version\`, skip build: $skip" >> "$GITHUB_STEP_SUMMARY"
+
   build-windows:
+    needs: check
+    if: needs.check.outputs.skip != 'true'
     runs-on: windows-latest
     defaults:
       run:
@@ -140,6 +187,7 @@ jobs:
           "Version: ``$env:VERSION``" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Start the release workflow
+        if: inputs.publish != false
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run release-from-run.yml --repo "${{ github.repository }}" --ref main -f run_id="${{ github.run_id }}"
