@@ -6,7 +6,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -62,7 +64,16 @@ data class AniListListEntry(
     val progress: Int,
     val score: Double,
     val updatedAt: Long,
+    /** AniList's "only in my custom lists" flag. */
+    val hidden: Boolean = false,
+    /** The custom lists the title is in. */
+    val customLists: List<String> = emptyList(),
 )
+
+/** One title's custom lists to write; [create] makes an entry that is on no status list. */
+data class CustomListWrite(val mediaId: Long, val lists: List<String>, val create: Boolean = false)
+
+private const val CUSTOM_LIST_BATCH_SIZE = 20
 
 internal class AniListAccountApi(
     internal val request: suspend (String, String, JsonObject) -> JsonObject = ::networkRequest,
@@ -304,6 +315,79 @@ internal class AniListAccountApi(
             progress = json.int("progress")?.coerceAtLeast(0) ?: 0,
             score = json.double("score")?.coerceAtLeast(0.0) ?: 0.0,
             updatedAt = json.long("updatedAt") ?: 0L,
+            hidden = json.boolean("hiddenFromStatusLists") ?: false,
+            customLists = parseAniListCustomLists(json["customLists"]),
+        )
+    }
+
+    /** The names of the account's custom anime lists, empty ones included. */
+    suspend fun customListNames(token: String): List<String> {
+        val data = request(token, CUSTOM_LIST_NAMES_QUERY, buildJsonObject {})
+        val names = (((data["Viewer"] as? JsonObject)?.get("mediaListOptions") as? JsonObject)
+            ?.get("animeList") as? JsonObject)?.get("customLists") as? JsonArray
+        return names?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.orEmpty()
+    }
+
+    /**
+     * Make the account's custom anime lists exactly [names], in that order. AniList has no create or
+     * rename call: the names are one field on the list settings, written whole, and a name dropped
+     * from it takes the list away from every entry that was in it.
+     */
+    suspend fun setCustomListNames(token: String, names: List<String>): List<String> {
+        val data = request(
+            token,
+            SET_CUSTOM_LIST_NAMES_MUTATION,
+            buildJsonObject { put("names", buildJsonArray { names.forEach { add(it) } }) },
+        )
+        val confirmed = ((((data["UpdateUser"] as? JsonObject)?.get("mediaListOptions") as? JsonObject)
+            ?.get("animeList") as? JsonObject)?.get("customLists") as? JsonArray)
+        return confirmed?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull } ?: names
+    }
+
+    /**
+     * Write which custom lists each title is in, several titles to a request. A title the account has
+     * no entry for is created as Planning *hidden from the status lists*, so it appears in its custom
+     * list and nowhere else: the viewer filed it, they did not plan it.
+     */
+    suspend fun saveCustomListMemberships(token: String, writes: List<CustomListWrite>) {
+        writes.chunked(CUSTOM_LIST_BATCH_SIZE).forEach { batch ->
+            val declarations = batch.indices.joinToString { index -> "\$id$index: Int, \$lists$index: [String]" }
+            val fields = batch.withIndex().joinToString("\n") { (index, write) ->
+                val create = if (write.create) ", status: PLANNING, hiddenFromStatusLists: true" else ""
+                "set$index: SaveMediaListEntry(mediaId: \$id$index, customLists: \$lists$index$create) { id }"
+            }
+            val variables = buildJsonObject {
+                batch.forEachIndexed { index, write ->
+                    put("id$index", write.mediaId)
+                    put("lists$index", buildJsonArray { write.lists.forEach { add(it) } })
+                }
+            }
+            request(token, "mutation ($declarations) {\n$fields\n}", variables)
+        }
+    }
+
+    /** Delete list entries by *entry* id, several to a request. */
+    suspend fun deleteEntries(token: String, entryIds: List<Long>) {
+        entryIds.distinct().chunked(CUSTOM_LIST_BATCH_SIZE).forEach { batch ->
+            val declarations = batch.indices.joinToString { index -> "\$id$index: Int!" }
+            val fields = batch.indices.joinToString("\n") { index ->
+                "delete$index: DeleteMediaListEntry(id: \$id$index) { deleted }"
+            }
+            val variables = buildJsonObject { batch.forEachIndexed { index, id -> put("id$index", id) } }
+            request(token, "mutation ($declarations) {\n$fields\n}", variables)
+        }
+    }
+
+    /** Tuck a Planning entry into its custom lists only, or bring it back onto Planning. */
+    suspend fun setHiddenFromStatusLists(token: String, mediaId: Long, hidden: Boolean) {
+        request(
+            token,
+            """
+            mutation (${'$'}mediaId: Int, ${'$'}hidden: Boolean) {
+              SaveMediaListEntry(mediaId: ${'$'}mediaId, hiddenFromStatusLists: ${'$'}hidden) { id }
+            }
+            """.trimIndent(),
+            buildJsonObject { put("mediaId", mediaId); put("hidden", hidden) },
         )
     }
 
@@ -348,8 +432,20 @@ internal class AniListAccountApi(
         """
 
         const val ENTRY_FIELDS = """
-            id status progress score updatedAt
+            id status progress score updatedAt hiddenFromStatusLists customLists(asArray: true)
             media { $MEDIA_FIELDS }
+        """
+
+        const val CUSTOM_LIST_NAMES_QUERY = """
+            query { Viewer { mediaListOptions { animeList { customLists } } } }
+        """
+
+        const val SET_CUSTOM_LIST_NAMES_MUTATION = """
+            mutation (${'$'}names: [String]) {
+              UpdateUser(animeListOptions: { customLists: ${'$'}names }) {
+                mediaListOptions { animeList { customLists } }
+              }
+            }
         """
 
         const val SNAPSHOT_QUERY = """

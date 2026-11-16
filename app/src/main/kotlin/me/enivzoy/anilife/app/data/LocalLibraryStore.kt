@@ -1,7 +1,6 @@
 ﻿package me.enivzoy.anilife.app.data
 
 import me.enivzoy.anilife.core.model.AnimeCard
-import me.enivzoy.anilife.core.model.NextAiring
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
@@ -93,36 +92,7 @@ class LocalLibraryStore(private val file: File = libraryFile()) {
             .mapNotNull { titleKey ->
                 val prefix = titleKey.removeSuffix("title")
                 val id = prefix.removePrefix("anime.").removeSuffix(".").toLongOrNull() ?: return@mapNotNull null
-                val title = properties.getProperty(titleKey)?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-                fun value(name: String) = properties.getProperty("${prefix}${name}")?.takeIf(String::isNotBlank)
-                fun intValue(name: String) = value(name)?.toIntOrNull()
-                fun doubleValue(name: String) = value(name)?.toDoubleOrNull()
-                val airingEpisode = intValue("airingEpisode")
-                val airingAt = value("airingAt")?.toLongOrNull()
-                AnimeCard(
-                    id = id,
-                    title = title,
-                    titleRomaji = value("titleRomaji"),
-                    titleEnglish = value("titleEnglish"),
-                    titleNative = value("titleNative"),
-                    malId = value("malId")?.toLongOrNull(),
-                    cover = value("cover"),
-                    color = value("color"),
-                    banner = value("banner"),
-                    format = value("format"),
-                    status = value("status"),
-                    episodes = intValue("episodes"),
-                    score = doubleValue("score"),
-                    year = intValue("year"),
-                    season = value("season"),
-                    genres = value("genres")?.split('|')?.filter(String::isNotBlank).orEmpty(),
-                    nextAiring = if (airingEpisode != null && airingAt != null) {
-                        NextAiring(airingEpisode, airingAt)
-                    } else {
-                        null
-                    },
-                    isAdult = value("isAdult")?.toBooleanStrictOrNull() ?: false,
-                )
+                properties.readCard(prefix, id)
             }
             .sortedBy { it.title.lowercase() }
             .toList()
@@ -132,27 +102,10 @@ class LocalLibraryStore(private val file: File = libraryFile()) {
         val properties = Properties()
         entries.forEach { anime ->
             val prefix = "anime.${anime.id}."
+            properties.putCard(prefix, anime)
             fun put(name: String, value: Any?) {
                 if (value != null) properties.setProperty(prefix + name, value.toString())
             }
-            put("title", anime.title)
-            put("titleRomaji", anime.titleRomaji)
-            put("titleEnglish", anime.titleEnglish)
-            put("titleNative", anime.titleNative)
-            put("malId", anime.malId)
-            put("cover", anime.cover)
-            put("color", anime.color)
-            put("banner", anime.banner)
-            put("format", anime.format)
-            put("status", anime.status)
-            put("episodes", anime.episodes)
-            put("score", anime.score)
-            put("year", anime.year)
-            put("season", anime.season)
-            put("genres", anime.genres.joinToString("|"))
-            put("airingEpisode", anime.nextAiring?.episode)
-            put("airingAt", anime.nextAiring?.airingAt)
-            put("isAdult", anime.isAdult)
             savedAt[anime.id]?.takeIf { it > 0 }?.let { put("addedAt", it) }
         }
 

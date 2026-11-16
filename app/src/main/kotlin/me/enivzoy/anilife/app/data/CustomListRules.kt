@@ -252,3 +252,9 @@ fun parseAniListCustomLists(element: JsonElement?): List<String> = when (element
  * Android (`SettingsStore.hiddenMalTags`).
  */
 fun shownMalTag(hidden: Set<String>, name: String): Boolean = hidden.none { listKey(it) == listKey(name) }
+
+/** The hidden MAL tags as stored in settings (comma-separated; a tag never holds a comma). */
+fun hiddenTagSet(stored: String): Set<String> =
+    stored.split(',').map(String::trim).filter(String::isNotEmpty).toCollection(linkedSetOf())
+
+fun hiddenTagNames(tags: Collection<String>): String = tags.joinToString(",")

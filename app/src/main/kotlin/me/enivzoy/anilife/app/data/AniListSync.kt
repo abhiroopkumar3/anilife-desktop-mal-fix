@@ -139,6 +139,7 @@ object AniListSync {
         credentialStore.delete()
         legacyTokenFile().delete()
         credentials = null
+        CustomListStoreInstance.onAccountLeft()
         mutableUser.value = null
         mutableEntries.value = emptyList()
         mutableActivity.value = emptyMap()
@@ -182,14 +183,40 @@ object AniListSync {
     suspend fun syncSaved(anime: AnimeCard, saved: Boolean) = mutex.withLock {
         val (account, auth) = requireConnected()
         val current = api.entry(auth.accessToken, account.id, anime.id)
-        when (aniListSavedPush(saved, current?.status?.apiValue)) {
+        val push = aniListSavedPush(
+            saved,
+            current?.status?.apiValue,
+            hidden = current?.hidden == true,
+            inCustomLists = current?.customLists?.isNotEmpty() == true,
+        )
+        when (push) {
             SavedPush.ADD_PLANNING -> saveRemoteEntry(account, auth, anime, null, AniListListStatus.PLANNING, 0, 0.0)
+            SavedPush.SHOW_ON_PLANNING -> api.setHiddenFromStatusLists(auth.accessToken, anime.id, false)
+            SavedPush.HIDE_FROM_STATUS_LISTS -> api.setHiddenFromStatusLists(auth.accessToken, anime.id, true)
             SavedPush.DELETE -> {
                 if (current != null && api.delete(auth.accessToken, current.entryId)) replaceEntry(null, anime.id)
                 else error("AniList did not confirm the list entry deletion.")
             }
-            else -> Unit
+            SavedPush.NONE -> Unit
         }
+    }
+
+    // Custom lists. Reads and writes go straight to the account; CustomListStore keeps the pending ops.
+    suspend fun customListNames(): List<String> = mutex.withLock {
+        val (_, auth) = requireConnected(); api.customListNames(auth.accessToken)
+    }
+    suspend fun setCustomListNames(names: List<String>): List<String> = mutex.withLock {
+        val (_, auth) = requireConnected(); api.setCustomListNames(auth.accessToken, names)
+    }
+    suspend fun saveCustomLists(writes: List<CustomListWrite>) = mutex.withLock {
+        val (_, auth) = requireConnected(); api.saveCustomListMemberships(auth.accessToken, writes)
+    }
+    /** The account's whole list, read fresh (hidden entries and custom lists included). */
+    suspend fun freshEntries(): List<AniListListEntry> = mutex.withLock {
+        val (account, auth) = requireConnected(); api.list(auth.accessToken, account.id)
+    }
+    suspend fun deleteEntries(entryIds: List<Long>) = mutex.withLock {
+        val (_, auth) = requireConnected(); api.deleteEntries(auth.accessToken, entryIds)
     }
 
     // The card menu's writes. Each reads nothing back into the cached list; the caller refreshes it.

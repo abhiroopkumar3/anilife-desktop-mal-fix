@@ -45,6 +45,11 @@ import androidx.compose.ui.unit.sp
 import java.nio.file.Path
 import me.enivzoy.anilife.app.data.AccountAdoption
 import me.enivzoy.anilife.app.data.AccountLibrary
+import me.enivzoy.anilife.app.data.CustomListHooks
+import me.enivzoy.anilife.app.data.CustomListStoreInstance
+import me.enivzoy.anilife.app.data.hiddenTagNames
+import me.enivzoy.anilife.app.data.hiddenTagSet
+import me.enivzoy.anilife.app.data.listKey
 import me.enivzoy.anilife.app.data.MalProgressSync
 import me.enivzoy.anilife.app.data.AniListRepository
 import me.enivzoy.anilife.app.data.AnimeVideoProviders
@@ -193,11 +198,16 @@ fun AniLifeApp(
         MyAnimeListSync.restore()
         AccountLibrary.repository = repository
         AccountLibrary.syncSavedEnabled = { settingsStore.settings.value.syncSavedToAccount }
+        CustomListHooks.hiddenMalTags = { hiddenTagSet(settingsStore.settings.value.hiddenMalTags) }
+        CustomListHooks.revealMalTag = { tag ->
+            settingsStore.update { it.copy(hiddenMalTags = hiddenTagNames(hiddenTagSet(it.hiddenMalTags).filterNot { t -> listKey(t) == listKey(tag) })) }
+        }
         val pushScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
         repository.onSaveChanged = { anime, saved -> pushScope.launch { AccountLibrary.saveToggled(anime, saved) } }
         repository.onBulkSaved = { pushScope.launch { AccountLibrary.pushSaved() } }
         AccountAdoption.settleAfterRestore()
         AccountLibrary.retryPending()
+        CustomListStoreInstance.pushPending()
         MalProgressSync.drain()
         DiscordOAuth.restore()
     }

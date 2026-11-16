@@ -100,6 +100,7 @@ object MyAnimeListSync {
     }
 
     suspend fun disconnect() = mutex.withLock {
+        CustomListStoreInstance.onAccountLeft()
         tokens = null
         mutableUser.value = null
         tokenFile().delete()
@@ -226,6 +227,23 @@ object MyAnimeListSync {
         val confirmed = parseMalEntryStatus(requestJson(patch))
         malWriteMismatch(write, confirmed)?.let { error(it) }
         confirmed
+    }
+
+    /**
+     * Give a MyAnimeList entry exactly [tags]. MAL cannot hold a title with no status, so one it does
+     * not have yet is added as Plan to Watch, the one status that claims nothing was watched.
+     */
+    suspend fun setTags(malId: Long, tags: List<String>, create: Boolean) = mutex.withLock {
+        val token = accessToken(tokens ?: error("Connect a MyAnimeList account first."))
+        val body = listOfNotNull(
+            "status" to "plan_to_watch".takeIf { create },
+            "tags" to tags.joinToString(","),
+        ).mapNotNull { (k, v) -> v?.let { k to it } }.toTypedArray()
+        val patch = HttpRequest.newBuilder(URI.create("$API/anime/$malId/my_list_status"))
+            .header("Authorization", "Bearer $token")
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .method("PATCH", HttpRequest.BodyPublishers.ofString(form(*body))).build()
+        requestJson(patch)
     }
 
     /** The entry's current status, for a move that depends on it (a rewatch). Null when not listed. */

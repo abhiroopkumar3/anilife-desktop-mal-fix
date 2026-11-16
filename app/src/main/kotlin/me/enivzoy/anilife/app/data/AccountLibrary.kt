@@ -28,6 +28,9 @@ object AccountLibrary {
     /** The MyAnimeList account's list, as last read. Empty unless MyAnimeList is the active account. */
     val malEntries = mutableMalEntries.asStateFlow()
 
+    /** AniList's own custom list names from the last read, or null when they could not be read. */
+    @Volatile private var lastAniListListNames: List<String>? = null
+
     @Volatile var repository: AniListRepository? = null
     @Volatile var syncSavedEnabled: () -> Boolean = { true }
 
@@ -38,6 +41,7 @@ object AccountLibrary {
             ListService.ANILIST -> {
                 mutableMalEntries.value = emptyList()
                 AniListSync.refreshList()
+                lastAniListListNames = runCatching { AniListSync.customListNames() }.getOrNull()
                 aniListEntriesToEntries(AniListSync.entries.value)
             }
             ListService.MAL -> {
@@ -79,6 +83,13 @@ object AccountLibrary {
         val key = accountKey() ?: return@withLock
         val remote = runCatching { remoteEntries() }.getOrNull() ?: return@withLock
         val syncSaved = syncSavedEnabled()
+        when (activeService()) {
+            ListService.ANILIST -> lastAniListListNames?.let {
+                CustomListStoreInstance.hydrateFromAccount(ListService.ANILIST, remote, it)
+            }
+            ListService.MAL -> CustomListStoreInstance.hydrateFromAccount(ListService.MAL, remote, null)
+            null -> Unit
+        }
         val result = hydrateFromAccount(
             remote = remote,
             saves = repo.library.saves.value,

@@ -69,8 +69,10 @@ fun malRowsToEntries(rows: List<MalListRow>, cardsByMalId: Map<Long, AnimeCard>)
     rows.mapNotNull { row ->
         val card = cardsByMalId[row.malId] ?: return@mapNotNull null
         val total = remoteEpisodeCeiling(card.episodes, row.totalEpisodes)
+        // The MAL id the row came with is the one a tag write must go to, so the card carries it.
+        val withMalId = if (card.malId == row.malId) card else card.copy(malId = row.malId)
         ListEntry(
-            anime = if (total == card.episodes) card else card.copy(episodes = total),
+            anime = if (total == withMalId.episodes) withMalId else withMalId.copy(episodes = total),
             status = row.status,
             progress = clampRemoteProgress(row.progress, total),
             score = row.score,
@@ -88,6 +90,8 @@ fun aniListEntriesToEntries(entries: List<AniListListEntry>): List<ListEntry> =
             progress = entry.progress,
             score = entry.score,
             updatedAt = entry.updatedAt,
+            hiddenFromStatusLists = entry.hidden,
+            customLists = entry.customLists,
         )
     }
 
