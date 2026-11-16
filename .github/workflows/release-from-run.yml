@@ -1,0 +1,82 @@
+name: Publish release from a build run
+
+# Takes the installers from a successful "Build Windows installers" run and publishes them as a
+# GitHub release tagged v<version> (version from "defaultVersion" in app/build.gradle.kts).
+# If the release already exists, its files are replaced. The app's updater reads this repo's
+# latest release, so the file ending in .base.exe must be present.
+# The build starts this workflow itself; you can also run it by hand with a run ID.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "ID of the successful build run to publish"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: release-from-run
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_ID: ${{ inputs.run_id }}
+    steps:
+      - name: Find the commit the build used
+        id: run
+        run: |
+          sha=$(gh api "repos/${{ github.repository }}/actions/runs/$RUN_ID" --jq '.head_sha')
+          conclusion=$(gh api "repos/${{ github.repository }}/actions/runs/$RUN_ID" --jq '.conclusion')
+          echo "Build run $RUN_ID used $sha (conclusion: $conclusion)"
+          [ "$conclusion" = "success" ] || { echo "That build run did not succeed."; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.run.outputs.sha }}
+
+      - name: Download the installers
+        uses: actions/download-artifact@v4
+        with:
+          name: Anilife-Windows-Installers
+          path: installers
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          SHA: ${{ steps.run.outputs.sha }}
+        shell: bash
+        run: |
+          version=$(grep -oP 'val defaultVersion = "\K[^"]+' app/build.gradle.kts)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Bad version '$version'"; exit 1; }
+          tag="v$version"
+
+          # GitHub turns "#" in file names into "." on upload; do it here so the names are known.
+          mkdir -p upload
+          for f in installers/*; do
+            cp "$f" "upload/$(basename "$f" | tr '#' '.')"
+          done
+          ls -l upload
+          ls upload | grep -q '\.base\.exe$' || { echo "No .base.exe found; the updater needs it."; exit 1; }
+
+          if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $tag exists, replacing its files."
+            gh release upload "$tag" upload/* --clobber --repo "${{ github.repository }}"
+          else
+            gh release create "$tag" upload/* \
+              --repo "${{ github.repository }}" \
+              --target "$SHA" \
+              --title "Anilife $version (Windows)" \
+              --notes "Windows installers built from this fork, which includes the MyAnimeList sign-in fix. The app checks this release for updates. Installers are unsigned, so Windows SmartScreen may warn."
+          fi
+          echo "### Release" >> "$GITHUB_STEP_SUMMARY"
+          echo "https://github.com/${{ github.repository }}/releases/tag/$tag" >> "$GITHUB_STEP_SUMMARY"
