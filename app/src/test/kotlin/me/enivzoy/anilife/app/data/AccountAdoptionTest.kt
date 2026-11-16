@@ -38,3 +38,41 @@ class AccountAdoptionTest {
         dir.deleteRecursively()
     }
 }
+
+class LocalLibraryStoreDatesTest {
+    private fun store(dir: java.io.File) = LocalLibraryStore(dir.resolve("library.properties"))
+
+    @Test
+    fun `a save remembers when it was added across restarts`() {
+        val dir = Files.createTempDirectory("lib").toFile()
+        val before = System.currentTimeMillis()
+        store(dir).add(me.enivzoy.anilife.core.model.AnimeCard(id = 1, title = "A"))
+        val saves = store(dir).saves.value
+        assertEquals(1, saves.size)
+        assert(saves.single().addedAt >= before)
+        dir.deleteRecursively()
+    }
+
+    @Test
+    fun `a library file from before dates were kept still loads with date zero`() {
+        val dir = Files.createTempDirectory("lib").toFile()
+        dir.resolve("library.properties").writeText("anime.7.title=Old\n")
+        val saves = store(dir).saves.value
+        assertEquals(7L, saves.single().anime.id)
+        assertEquals(0L, saves.single().addedAt)
+        dir.deleteRecursively()
+    }
+
+    @Test
+    fun `re-adding a title keeps its first date`() {
+        val dir = Files.createTempDirectory("lib").toFile()
+        val s = store(dir)
+        val card = me.enivzoy.anilife.core.model.AnimeCard(id = 1, title = "A")
+        s.add(card)
+        val first = s.saves.value.single().addedAt
+        Thread.sleep(5)
+        s.add(card)
+        assertEquals(first, s.saves.value.single().addedAt)
+        dir.deleteRecursively()
+    }
+}

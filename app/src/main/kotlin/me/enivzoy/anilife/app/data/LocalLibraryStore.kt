@@ -14,8 +14,20 @@ import java.util.Properties
  
 class LocalLibraryStore(private val file: File = libraryFile()) {
     private val lock = Any()
+    private val savedAt: MutableMap<Long, Long> = readSavedAt().toMutableMap()
     private val mutableEntries = MutableStateFlow(readEntries())
     val entries = mutableEntries.asStateFlow()
+    private val mutableSaves = MutableStateFlow(currentSaves())
+    /** The same titles with the time each was saved (epoch milliseconds, 0 for saves made before dates were kept). */
+    val saves = mutableSaves.asStateFlow()
+
+    private fun currentSaves() = mutableEntries.value.map { LocalSave(it, savedAt[it.id] ?: 0L) }
+    private fun publish(updated: List<AnimeCard>) {
+        savedAt.keys.retainAll(updated.mapTo(mutableSetOf()) { it.id })
+        writeEntries(updated)
+        mutableEntries.value = updated
+        mutableSaves.value = currentSaves()
+    }
 
     fun add(anime: AnimeCard) = synchronized(lock) {
         addAll(listOf(anime))
@@ -23,10 +35,21 @@ class LocalLibraryStore(private val file: File = libraryFile()) {
 
     fun addAll(anime: List<AnimeCard>) = synchronized(lock) {
         if (anime.isEmpty()) return@synchronized
+        val now = System.currentTimeMillis()
+        val fresh = anime.filter { new -> mutableEntries.value.none { it.id == new.id } }
+        fresh.forEach { savedAt[it.id] = now }
         val updated = (mutableEntries.value.filterNot { existing -> anime.any { it.id == existing.id } } + anime)
             .sortedBy { it.title.lowercase() }
-        writeEntries(updated)
-        mutableEntries.value = updated
+        publish(updated)
+    }
+
+    /** Replace the saves with [merged], keeping each title's own date. Used by the account sync. */
+    fun replaceAll(merged: List<LocalSave>) = synchronized(lock) {
+        merged.forEach { savedAt[it.anime.id] = it.addedAt }
+        val updated = merged.map { it.anime }.sortedBy { it.title.lowercase() }
+        if (updated != mutableEntries.value || merged.any { savedAt[it.anime.id] != currentSaves().firstOrNull { s -> s.anime.id == it.anime.id }?.addedAt }) {
+            publish(updated)
+        }
     }
 
     fun setTitleLanguage(language: String) = synchronized(lock) {
@@ -34,8 +57,7 @@ class LocalLibraryStore(private val file: File = libraryFile()) {
             .map { anime -> anime.withTitlePreference(language) }
             .sortedBy { it.title.lowercase() }
         if (updated != mutableEntries.value) {
-            writeEntries(updated)
-            mutableEntries.value = updated
+            publish(updated)
         }
     }
 
@@ -44,9 +66,21 @@ class LocalLibraryStore(private val file: File = libraryFile()) {
     fun remove(id: Long) = synchronized(lock) {
         val updated = mutableEntries.value.filterNot { it.id == id }
         if (updated.size != mutableEntries.value.size) {
-            writeEntries(updated)
-            mutableEntries.value = updated
+            publish(updated)
         }
+    }
+
+    private fun readSavedAt(): Map<Long, Long> {
+        if (!file.isFile) return emptyMap()
+        val properties = Properties()
+        file.inputStream().use(properties::load)
+        return properties.stringPropertyNames()
+            .filter { it.startsWith("anime.") && it.endsWith(".addedAt") }
+            .mapNotNull { key ->
+                val id = key.removePrefix("anime.").removeSuffix(".addedAt").toLongOrNull() ?: return@mapNotNull null
+                val at = properties.getProperty(key)?.toLongOrNull() ?: return@mapNotNull null
+                id to at
+            }.toMap()
     }
 
     private fun readEntries(): List<AnimeCard> {
@@ -119,6 +153,7 @@ class LocalLibraryStore(private val file: File = libraryFile()) {
             put("airingEpisode", anime.nextAiring?.episode)
             put("airingAt", anime.nextAiring?.airingAt)
             put("isAdult", anime.isAdult)
+            savedAt[anime.id]?.takeIf { it > 0 }?.let { put("addedAt", it) }
         }
 
         file.parentFile?.let { Files.createDirectories(it.toPath()) }

@@ -16,6 +16,7 @@ Status: **Done** (ported and tested), **Planned**, **Not ported** (no Windows eq
 | `buildCombinedWatchlist` | `data/LibraryRules.kt` | Done | `CombinedWatchlistTest`, `LibraryWaveOrderTest` ported (4). Takes `ListEntry`/`LocalSave` instead of `AniListProfile` |
 | `completedCards` | `data/LibraryRules.kt` | Done, reduced | Account Completed only; Android also adds titles marked watched on the device |
 | `newEpisodeCount` | `data/LibraryRules.kt` | Done | `NewEpisodeCountTest` ported (11) |
+| `WatchlistEntry.addedAt` | `LocalLibraryStore.saves`, `LocalSave` | Done | Date kept per save in `library.properties` (`anime.<id>.addedAt`); older files load as 0 |
 | `MediaListEntry` | `data/LibraryRules.kt` `ListEntry` | Done (type) | Producers for MAL and AniList: Planned |
 
 ## Data and sync
