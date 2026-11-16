@@ -2,7 +2,8 @@ name: Publish release from a build run
 
 # Takes the installers from a successful "Build Windows installers" run and publishes them as a
 # GitHub release tagged v<version> (the version the build used).
-# If the release already exists, its files are replaced. The app's updater reads this repo's
+# If the release already exists it is left alone, unless "replace" is ticked (repairing a broken
+# upload). The app's updater reads this repo's
 # latest release, so the file ending in .base.exe must be present.
 # The build starts this workflow itself; you can also run it by hand with a run ID.
 
@@ -13,6 +14,10 @@ on:
         description: "ID of the successful build run to publish"
         required: true
         type: string
+      replace:
+        description: "Replace the files of the release if it already exists (leave unticked to leave an existing release alone)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -54,6 +59,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           SHA: ${{ steps.run.outputs.sha }}
+          REPLACE: ${{ inputs.replace }}
         shell: bash
         run: |
           # The build writes the version it used into version.json, which covers a version typed in the
@@ -71,6 +77,12 @@ jobs:
           ls upload | grep -q '\.base\.exe$' || { echo "No .base.exe found; the updater needs it."; exit 1; }
 
           if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            if [ "$REPLACE" != "true" ]; then
+              echo "Release $tag already exists, so it was left as it is. Tick replace to swap its files."
+              echo "### Release" >> "$GITHUB_STEP_SUMMARY"
+              echo "$tag already exists; nothing changed." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
             echo "Release $tag exists, replacing its files."
             gh release upload "$tag" upload/* --clobber --repo "${{ github.repository }}"
           else
