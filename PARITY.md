@@ -24,8 +24,8 @@ Status: **Done** (ported and tested), **Planned**, **Not ported** (no Windows eq
 |---|---|---|---|
 | `MiruroRepository.malAnimeList` (MAL list as `MediaListEntry`) | | Planned | One list model for both services |
 | `LibraryStore.hydrateRemoteLibrary` | | Planned | Saved titles union, Continue Watching reconcile |
-| `mergeWatchlistEntries` | | Planned | Drop a save only when the account had it and now has it nowhere |
-| `historyAfterRemoteProgress`, `seedHistoryFromRemote` | | Planned | Account progress moves a row forward, never back |
+| `mergeWatchlistEntries` | `data/LibrarySyncRules.kt` | Done (rule) | `WatchlistRemovalTest` ported (7) plus one date-kept case. Wiring: Planned |
+| `historyAfterRemoteProgress`, `remoteRowEpisode`, `remoteMovesOffWatching`, `isFinishedSeriesLeftover` | `data/LibrarySyncRules.kt` | Done (rules), reduced | `RemoteProgressReconcileTest` ported (19). Windows rows have no watched-episode set, so the set is not filled in and "finished" means past 90% of the last episode. Wiring and seeding: Planned |
 | `AccountAdoption` (one active account) | | Planned | Connecting one account logs the other out |
 | `LibraryStore.syncSavedToRemote` | | Planned | Gated by the "sync saved" setting |
 | `planMediaListProgressUpdate`, `saveMalProgress` | | Planned | MAL progress rules during playback |
