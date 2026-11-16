@@ -23,8 +23,8 @@ data class HydrationResult(
     val snapshot: Map<Long, String>,
 )
 
-/** A row seeded from the account has no real playback length yet; this is only a placeholder. */
-const val SEEDED_EPISODE_SECONDS = 1440.0
+/** A row seeded from the account has no playback length until the episode is played. */
+const val SEEDED_EPISODE_SECONDS = 0.0
 
 fun hydrateFromAccount(
     remote: List<ListEntry>,

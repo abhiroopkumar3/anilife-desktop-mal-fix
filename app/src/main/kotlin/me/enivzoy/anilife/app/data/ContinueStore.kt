@@ -96,7 +96,7 @@ class ContinueStore(private val file: File = continueFile()) {
                 val position = value("position")?.toDoubleOrNull() ?: 0.0
                 val duration = value("duration")?.toDoubleOrNull() ?: 0.0
                 val updatedAt = value("updatedAt")?.toLongOrNull() ?: 0L
-                if (duration <= 0.0) return@mapNotNull null
+                // A row seeded from an account has no length until the episode is played.
                 val anime = AnimeCard(
                     id = id,
                     title = title,

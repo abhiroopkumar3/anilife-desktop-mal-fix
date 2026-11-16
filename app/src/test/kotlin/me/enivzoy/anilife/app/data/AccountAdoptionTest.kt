@@ -76,3 +76,17 @@ class LocalLibraryStoreDatesTest {
         dir.deleteRecursively()
     }
 }
+
+class SeededContinueRowTest {
+    @Test
+    fun `a seeded row with no length survives a restart and offers no resume position`() {
+        val dir = Files.createTempDirectory("cont").toFile()
+        val file = dir.resolve("continue.properties")
+        val card = me.enivzoy.anilife.core.model.AnimeCard(id = 1, title = "A")
+        ContinueStore(file).replace(ContinueEntry(card, ContinueProgress(5.0, 0.0, 0.0), 1_000))
+        val reread = ContinueStore(file)
+        assertEquals(5.0, reread.entries.value.single().progress.episode)
+        assertNull(reread.positionFor(1, 5.0))
+        dir.deleteRecursively()
+    }
+}
