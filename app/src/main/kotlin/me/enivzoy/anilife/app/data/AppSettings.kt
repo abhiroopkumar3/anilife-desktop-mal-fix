@@ -75,6 +75,8 @@ data class AppSettings(
     val subtitleScale: Float = 1f,
     val aniListSubmitPercent: Int = 80,
     val checkUpdatesOnLaunch: Boolean = true,
+    /** Android's "sync saved to account": merge the account's Planning list into saves and push saves up. */
+    val syncSavedToAccount: Boolean = true,
     val captionFont: String = "sans-serif",
     val captionFontFile: String = "",
     val buttonColor: String = "#87D66A",
@@ -157,6 +159,7 @@ class AppSettingsStore(private val file: File = settingsFile()) {
             volume = properties.getProperty("volume", "100").toIntOrNull() ?: 100,
             subtitleScale = properties.getProperty("subtitleScale", "1.0").toFloatOrNull() ?: 1f,
             checkUpdatesOnLaunch = properties.getProperty("checkUpdatesOnLaunch", "true").toBooleanStrictOrNull() ?: true,
+            syncSavedToAccount = properties.getProperty("syncSavedToAccount", "true").toBooleanStrictOrNull() ?: true,
             captionFont = properties.getProperty("captionFont", "sans-serif"),
             captionFontFile = properties.getProperty("captionFontFile", ""),
             buttonColor = properties.getProperty("buttonColor", "#87D66A"),
@@ -211,6 +214,7 @@ class AppSettingsStore(private val file: File = settingsFile()) {
             setProperty("volume", settings.volume.toString())
             setProperty("subtitleScale", settings.subtitleScale.toString())
             setProperty("checkUpdatesOnLaunch", settings.checkUpdatesOnLaunch.toString())
+            setProperty("syncSavedToAccount", settings.syncSavedToAccount.toString())
             setProperty("captionFont", settings.captionFont)
             setProperty("captionFontFile", settings.captionFontFile)
             setProperty("buttonColor", settings.buttonColor)

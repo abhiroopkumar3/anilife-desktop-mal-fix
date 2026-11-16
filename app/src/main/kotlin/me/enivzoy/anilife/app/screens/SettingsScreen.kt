@@ -1192,6 +1192,14 @@ private fun AppSettingsPage(
 ) {
     SettingsSection("Updates") {
         SettingsRow(
+            "Sync saved titles with your account",
+            "Add your account's Plan to watch titles to your saved list, and send saved titles to your account as Plan to watch.",
+        ) {
+            SettingsSwitch(settings.syncSavedToAccount) { enabled ->
+                onSettingsChange { it.copy(syncSavedToAccount = enabled) }
+            }
+        }
+        SettingsRow(
             "Check for updates on launch",
             "Look for a newer AniLife release when the app starts. You choose whether to install it.",
         ) {

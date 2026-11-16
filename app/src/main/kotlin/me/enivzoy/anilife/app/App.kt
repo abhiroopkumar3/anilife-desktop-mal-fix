@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.nio.file.Path
 import me.enivzoy.anilife.app.data.AccountAdoption
+import me.enivzoy.anilife.app.data.AccountLibrary
 import me.enivzoy.anilife.app.data.AniListRepository
 import me.enivzoy.anilife.app.data.AnimeVideoProviders
 import me.enivzoy.anilife.app.data.DiscordOAuth
@@ -189,6 +190,8 @@ fun AniLifeApp(
         AniListSync.restore()
         MyAnimeListSync.configure()
         MyAnimeListSync.restore()
+        AccountLibrary.repository = repository
+        AccountLibrary.syncSavedEnabled = { settingsStore.settings.value.syncSavedToAccount }
         AccountAdoption.settleAfterRestore()
         DiscordOAuth.restore()
     }

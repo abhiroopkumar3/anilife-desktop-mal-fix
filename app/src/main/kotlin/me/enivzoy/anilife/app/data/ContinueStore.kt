@@ -44,6 +44,15 @@ class ContinueStore(private val file: File = continueFile()) {
         }
     }
 
+    /** Put [entry] in as it is, keeping its own timestamp. Used when the account moves a row. */
+    fun replace(entry: ContinueEntry) = synchronized(lock) {
+        val updated = (mutableEntries.value.filterNot { it.anime.id == entry.anime.id } + entry)
+            .sortedByDescending { it.updatedAt }
+            .take(24)
+        writeEntries(updated)
+        mutableEntries.value = updated
+    }
+
     fun remove(id: Long) = synchronized(lock) {
         val updated = mutableEntries.value.filterNot { it.anime.id == id }
         if (updated.size != mutableEntries.value.size) {

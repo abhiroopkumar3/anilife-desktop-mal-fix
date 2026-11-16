@@ -148,6 +148,18 @@ object MyAnimeListSync {
         rows
     }
 
+    /** Add a title to the signed-in MAL list as plan to watch, leaving it alone if it is already listed. */
+    suspend fun addPlanned(malId: Long) = mutex.withLock {
+        val token = accessToken(tokens ?: error("Connect a MyAnimeList account first."))
+        val body = "status=${encode("plan_to_watch")}"
+        val request = HttpRequest.newBuilder(URI.create("$API/anime/$malId/my_list_status"))
+            .header("Authorization", "Bearer $token")
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .method("PATCH", HttpRequest.BodyPublishers.ofString(body))
+            .build()
+        requestJson(request)
+    }
+
     suspend fun syncCompletedEpisode(malId: Long, watched: Int) = mutex.withLock {
         val current = tokens ?: return@withLock
         val token = accessToken(current)

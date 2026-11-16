@@ -24,11 +24,11 @@ Status: **Done** (ported and tested), **Planned**, **Not ported** (no Windows eq
 | Android | Windows | Status | Notes |
 |---|---|---|---|
 | `MiruroRepository.malAnimeList` (MAL list as `MediaListEntry`) | `data/MalListModel.kt`, `MyAnimeListSync.rows()` | Done, one difference | Paged read with Android's fields, status maps, episode ceiling and clamp ported. MAL ids are joined to AniList by `idMal_in` only; Android first tries the Konoha CDN id map. Not wired into the screen yet |
-| `LibraryStore.hydrateRemoteLibrary` | `data/LibraryHydration.kt` | Done (pure), not yet wired | Hidden entries ignored, saves merge, rows move forward, moved-off and finished rows removed, Watching titles seeded. 12 tests of Windows' own. Seeded rows carry a 24 minute placeholder length |
+| `LibraryStore.hydrateRemoteLibrary` | `data/LibraryHydration.kt`, `data/AccountLibrary.kt` | Done, wired at startup and on sign-in | Hidden entries ignored, saves merge, rows move forward, moved-off and finished rows removed, Watching titles seeded. 12 tests of Windows' own. Seeded rows carry a 24 minute placeholder length |
 | `mergeWatchlistEntries` | `data/LibrarySyncRules.kt` | Done (rule) | `WatchlistRemovalTest` ported (7) plus one date-kept case. Wiring: Planned |
 | `historyAfterRemoteProgress`, `remoteRowEpisode`, `remoteMovesOffWatching`, `isFinishedSeriesLeftover` | `data/LibrarySyncRules.kt` | Done (rules), reduced | `RemoteProgressReconcileTest` ported (19). Windows rows have no watched-episode set, so the set is not filled in and "finished" means past 90% of the last episode. Wiring and seeding: Planned |
 | `AccountAdoption` (one active account) | `data/AccountAdoption.kt` | Done, partly | New sign-in succeeds first, then the other service is logged out and its cached list cleared. Both-connected users keep the most recent sign-in (AniList if unknown). Pushing saved titles to the new account: Planned |
-| `LibraryStore.syncSavedToRemote` | | Planned | Gated by the "sync saved" setting |
+| `LibraryStore.syncSavedToRemote` | `AccountLibrary.pushSaved`, setting `syncSavedToAccount` | Done, one difference | Pushes saves the account lacks as Planning when the setting is on (default on). Android also keeps a retry queue for failed pushes; Windows retries on the next sign-in or refresh only |
 | `planMediaListProgressUpdate`, `saveMalProgress` | | Planned | MAL progress rules during playback |
 | `WatchActivityStore`, `mergedActivity`, `activityStreak` | | Planned | Activity grid |
 | `CustomListStore`, `CustomLists.kt` | | Planned | AniList lists, MAL tags, local when signed out |

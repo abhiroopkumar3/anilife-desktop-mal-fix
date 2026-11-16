@@ -63,12 +63,14 @@ object AccountAdoption {
         AniListSync.connect(pastedAccessToken)
         store.write(ActiveAccount(ListService.ANILIST, System.currentTimeMillis()))
         if (MyAnimeListSync.user.value != null) MyAnimeListSync.disconnect()
+        AccountLibrary.adopted()
     }
 
     suspend fun connectMyAnimeList() {
         MyAnimeListSync.connect()
         store.write(ActiveAccount(ListService.MAL, System.currentTimeMillis()))
         if (AniListSync.user.value != null) AniListSync.disconnect()
+        AccountLibrary.adopted()
     }
 
     /** Run after both services have restored, to settle anyone who has both connected. */
@@ -83,5 +85,6 @@ object AccountAdoption {
             ListService.MAL -> if (AniListSync.user.value != null) AniListSync.disconnect()
             null -> store.clear()
         }
+        if (keep != null) AccountLibrary.refresh()
     }
 }
