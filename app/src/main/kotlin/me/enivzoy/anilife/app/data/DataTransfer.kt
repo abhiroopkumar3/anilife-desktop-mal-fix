@@ -15,6 +15,7 @@ class DataTransfer(
     private val now: () -> Long = System::currentTimeMillis,
     private val accounts: AccountLists = LiveAccountLists(),
     private val syncSaved: () -> Boolean = { true },
+    private val customLists: CustomListStore = CustomListStoreInstance,
 ) {
     /** Snapshot of everything a backup carries, right now. */
     fun createBackup(settings: AppSettings): BackupDocument {
@@ -33,6 +34,22 @@ class DataTransfer(
                     format = anime.format,
                     averageScore = anime.score?.toInt(),
                     addedAt = stamp - index,
+                )
+            },
+            customLists = customLists.lists.value.map { list ->
+                BackupCustomList(
+                    name = list.name,
+                    createdAt = list.createdAt,
+                    entries = list.entries.map { save ->
+                        BackupWatchlistEntry(
+                            anilistId = save.anime.id,
+                            title = save.anime.title,
+                            cover = save.anime.cover,
+                            format = save.anime.format,
+                            averageScore = save.anime.score?.toInt(),
+                            addedAt = save.addedAt,
+                        )
+                    },
                 )
             },
             history = continueStore.entries.value.map { entry ->
@@ -72,7 +89,8 @@ class DataTransfer(
         // the library can show episode counts and so a MyAnimeList export can find the MAL ids; if
         // AniList cannot be reached the restore still works, with the sparse versions.
         val lookup = repository.lookupCards(
-            ids = document.watchlist.map { it.anilistId } + history.map { it.anilistId },
+            ids = (document.watchlist.map { it.anilistId } + history.map { it.anilistId } +
+                document.customLists.flatMap { list -> list.entries.map { it.anilistId } }).distinct(),
             failFast = false,
             onProgress = onProgress,
         )
@@ -85,6 +103,17 @@ class DataTransfer(
         }
         val added = repository.library.addNew(
             document.watchlist.map { card(it.anilistId, it.title, it.cover, it.format, it.averageScore) },
+        )
+        val newLists = customLists.importLists(
+            document.customLists.map { list ->
+                CustomList(
+                    name = list.name,
+                    createdAt = list.createdAt,
+                    entries = list.entries.map { entry ->
+                        LocalSave(card(entry.anilistId, entry.title, entry.cover, entry.format, entry.averageScore), entry.addedAt)
+                    },
+                )
+            },
         )
         val stamp = now()
         val restoredHistory = continueStore.restore(
@@ -107,7 +136,6 @@ class DataTransfer(
         val notRestored = buildList {
             val ignoredSettings = document.settings.size - settingsApplied
             if (ignoredSettings > 0) add("$ignoredSettings Android-only setting${if (ignoredSettings == 1) "" else "s"}")
-            if (document.customListCount > 0) add("${document.customListCount} custom list${if (document.customListCount == 1) "" else "s"}")
             if (document.watchedCount > 0) add("${document.watchedCount} watched mark${if (document.watchedCount == 1) "" else "s"}")
             if (document.searchHistory.isNotEmpty()) add("${document.searchHistory.size} recent search${if (document.searchHistory.size == 1) "" else "es"}")
             if (document.loginServices.isNotEmpty()) add("logins (sign in under Accounts & sync instead)")
@@ -117,7 +145,15 @@ class DataTransfer(
                 add("Some titles were saved without their full details because AniList could not be reached. They fill in the next time you use Export MyAnimeList XML while online.")
             }
         }
-        return RestoreSummary(settingsApplied, added, restoredHistory, notRestored, warnings, pushSavedToAccount())
+        return RestoreSummary(
+            settings = settingsApplied,
+            watchlist = added,
+            history = restoredHistory,
+            customLists = newLists,
+            notRestored = notRestored,
+            warnings = warnings,
+            accountNote = pushSavedToAccount(),
+        )
     }
 
     /**

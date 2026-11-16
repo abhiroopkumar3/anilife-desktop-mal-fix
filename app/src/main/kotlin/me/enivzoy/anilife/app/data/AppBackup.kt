@@ -34,6 +34,13 @@ data class BackupWatchlistEntry(
     val addedAt: Long,
 )
 
+/** A custom list as the Android app writes it: a name, the titles in it and when it was made. */
+data class BackupCustomList(
+    val name: String,
+    val entries: List<BackupWatchlistEntry> = emptyList(),
+    val createdAt: Long = 0L,
+)
+
 data class BackupHistoryEntry(
     val anilistId: Long,
     val title: String,
@@ -55,12 +62,15 @@ data class BackupDocument(
     val watchlist: List<BackupWatchlistEntry> = emptyList(),
     val history: List<BackupHistoryEntry> = emptyList(),
     val searchHistory: List<String> = emptyList(),
-    /** Android-only sections. They are counted so a restore can say what it left out. */
-    val customListCount: Int = 0,
+    val customLists: List<BackupCustomList> = emptyList(),
+    /** An Android-only section. It is counted so a restore can say what it left out. */
     val watchedCount: Int = 0,
     /** Service names of any sealed logins in the file. They are never opened here. */
     val loginServices: List<String> = emptyList(),
 ) {
+    val customListCount: Int
+        get() = customLists.size
+
     /** "6 settings · 1,163 saved · 7 continue watching", skipping whatever the file has none of. */
     fun describe(): String = describeCounts(
         settings = settings.size,
@@ -78,6 +88,8 @@ data class RestoreSummary(
     val settings: Int,
     val watchlist: Int,
     val history: Int,
+    /** Lists from the file this PC did not have yet. A list it already had only gains titles. */
+    val customLists: Int = 0,
     /** Things in the file this app has no place for, in plain words, for the result line. */
     val notRestored: List<String> = emptyList(),
     val warnings: List<String> = emptyList(),
@@ -87,6 +99,7 @@ data class RestoreSummary(
     fun describe(): String = buildList {
         if (settings > 0) add("$settings setting${plural(settings)}")
         if (watchlist > 0) add("$watchlist saved")
+        if (customLists > 0) add("$customLists new list${plural(customLists)}")
         if (history > 0) add("$history continue watching")
     }.joinToString(" · ").ifEmpty { "nothing new" }
 }
@@ -132,16 +145,7 @@ object AppBackup {
             put("appVersion", document.appVersion)
             put("settings", document.settings)
             put("watchlist", buildJsonArray {
-                document.watchlist.forEach { entry ->
-                    add(buildJsonObject {
-                        put("anilistId", entry.anilistId)
-                        put("title", entry.title)
-                        put("cover", entry.cover?.let(::JsonPrimitive) ?: JsonNull)
-                        entry.format?.let { put("format", it) }
-                        entry.averageScore?.let { put("averageScore", it) }
-                        put("addedAt", entry.addedAt)
-                    })
-                }
+                document.watchlist.forEach { add(encodeSave(it)) }
             })
             put("history", buildJsonArray {
                 document.history.forEach { entry ->
@@ -163,7 +167,15 @@ object AppBackup {
                 }
             })
             put("searchHistory", JsonArray(document.searchHistory.map(::JsonPrimitive)))
-            put("customLists", JsonArray(emptyList()))
+            put("customLists", buildJsonArray {
+                document.customLists.forEach { list ->
+                    add(buildJsonObject {
+                        put("name", list.name)
+                        put("entries", buildJsonArray { list.entries.forEach { add(encodeSave(it)) } })
+                        put("createdAt", list.createdAt)
+                    })
+                }
+            })
             put("watched", JsonArray(emptyList()))
             put("credentials", JsonNull)
         }
@@ -202,17 +214,7 @@ object AppBackup {
             createdAt = root.long("createdAt") ?: 0L,
             appVersion = root.string("appVersion").orEmpty(),
             settings = root["settings"] as? JsonObject ?: JsonObject(emptyMap()),
-            watchlist = (root["watchlist"] as? JsonArray).orEmpty().mapNotNull { element ->
-                val item = element as? JsonObject ?: return@mapNotNull null
-                BackupWatchlistEntry(
-                    anilistId = item.long("anilistId") ?: return@mapNotNull null,
-                    title = item.string("title") ?: return@mapNotNull null,
-                    cover = item.string("cover"),
-                    format = item.string("format"),
-                    averageScore = item.long("averageScore")?.toInt(),
-                    addedAt = item.long("addedAt") ?: 0L,
-                )
-            },
+            watchlist = decodeSaves(root["watchlist"]),
             history = (root["history"] as? JsonArray).orEmpty().mapNotNull { element ->
                 val item = element as? JsonObject ?: return@mapNotNull null
                 BackupHistoryEntry(
@@ -231,12 +233,41 @@ object AppBackup {
             },
             searchHistory = (root["searchHistory"] as? JsonArray).orEmpty()
                 .mapNotNull { (it as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content },
-            customListCount = (root["customLists"] as? JsonArray)?.size ?: 0,
+            customLists = (root["customLists"] as? JsonArray).orEmpty().mapNotNull { element ->
+                val item = element as? JsonObject ?: return@mapNotNull null
+                BackupCustomList(
+                    name = item.string("name") ?: return@mapNotNull null,
+                    entries = decodeSaves(item["entries"]),
+                    createdAt = item.long("createdAt") ?: 0L,
+                )
+            },
             watchedCount = (root["watched"] as? JsonArray)?.size ?: 0,
             loginServices = (credentials?.get("services") as? JsonArray).orEmpty()
                 .mapNotNull { (it as? JsonPrimitive)?.contentOrNull },
         )
     }
+
+    private fun encodeSave(entry: BackupWatchlistEntry): JsonObject = buildJsonObject {
+        put("anilistId", entry.anilistId)
+        put("title", entry.title)
+        put("cover", entry.cover?.let(::JsonPrimitive) ?: JsonNull)
+        entry.format?.let { put("format", it) }
+        entry.averageScore?.let { put("averageScore", it) }
+        put("addedAt", entry.addedAt)
+    }
+
+    private fun decodeSaves(element: JsonElement?): List<BackupWatchlistEntry> =
+        (element as? JsonArray).orEmpty().mapNotNull { row ->
+            val item = row as? JsonObject ?: return@mapNotNull null
+            BackupWatchlistEntry(
+                anilistId = item.long("anilistId") ?: return@mapNotNull null,
+                title = item.string("title") ?: return@mapNotNull null,
+                cover = item.string("cover"),
+                format = item.string("format"),
+                averageScore = item.long("averageScore")?.toInt(),
+                addedAt = item.long("addedAt") ?: 0L,
+            )
+        }
 
     fun fileName(date: LocalDate = LocalDate.now()): String =
         "Anilife-backup-${date.format(DateTimeFormatter.BASIC_ISO_DATE)}.json"

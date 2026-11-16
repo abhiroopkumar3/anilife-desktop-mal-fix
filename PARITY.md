@@ -33,6 +33,7 @@ Status: **Done** (ported and tested), **Planned**, **Not ported** (no Windows eq
 | `WatchActivityStore`, `mergedActivity`, `activityStreak`, `shouldRecordWatchActivity`, `ActivityHeatmap`, `activityHistory` | `data/WatchActivity.kt`, `ui/ActivityHeatmap.kt`, `AniListSync.refreshActivity` | Done (needs a visual check on a PC) | Android's two tests ported. Grid sits on the Accounts screen, because Windows has no account drawer. The Android drawer's other Overview and Stats panels are not part of My List and are not ported. Backups do not carry the log (Android's does not either) |
 | `CustomLists.kt` (`normalizedListName`, `CustomListOps`, `plannedListNames`, `plannedEntryChanges`, `mergedCustomLists`) | `data/CustomListRules.kt` | Done (rule) | 14 ported cases in `CustomListRulesTest`, plus `CustomListCardsTest` and `HiddenEntriesTest` |
 | `CustomListStore` | `data/CustomListStore.kt`, `data/CustomListSync.kt`, `data/AnimeCardProperties.kt`, file `custom-lists.properties` | Done, needs a visual check | AniList custom lists, MAL tags, and a local list when signed out. Changes are recorded as pending ops and replayed against the account; a refresh lays them on top of what the account holds. Leaving an account turns every list back into pending ops for the next one. 10 cases in `CustomListStoreTest` |
+| `AppBackup.customLists`, `CustomListStore.importLists` | `data/AppBackup.kt` `BackupCustomList`, `data/DataTransfer.kt` | Done | A backup writes every custom list with its titles, and a restore merges them the way Android does: a list the PC already has (any letter case) pools titles, a new one is added, titles are filled in from AniList, and the changes reach the signed-in account through the same pending queue. Three tests in `DataTransferTest` |
 | `aniListCollectionForCustomLists`, `setCustomListNames`, `saveCustomListMemberships`, `deleteMediaListEntries` | `AniListAccountApi`, `AniListSync` | Done | Same GraphQL. A title put in a list with no account entry is made as Planning hidden from the status lists; one left in no list is deleted |
 | `MalClient.updateListStatus(tags=)` | `MyAnimeListSync.setTags` | Done | A title MAL lacks is added as Plan to Watch |
 | `hiddenFromStatusLists` on entries | `AniListListEntry.hidden`, `ListEntry.hiddenFromStatusLists` | Done | Windows used to ignore the flag; custom-list-only entries no longer appear as Planning or in the watchlist |
@@ -65,7 +66,6 @@ Status: **Done** (ported and tested), **Planned**, **Not ported** (no Windows eq
 | Downloads section on the Library page | Windows has its own Downloads screen |
 | `LocalWatchedStore` (mark watched) | Windows has no such feature |
 | Encrypted logins, recent searches in backups | No Windows equivalent |
-| Custom lists in backups (`AppBackup.customLists`, `importLists`) | `CustomListStore.importLists` is ported; the backup file itself arrives with PR #3 (backup and restore), which is not on this branch yet |
 
 ## Keeping the two in step
 
