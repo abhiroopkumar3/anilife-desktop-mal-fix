@@ -231,18 +231,6 @@ object MyAnimeListSync {
     /** The entry's current status, for a move that depends on it (a rewatch). Null when not listed. */
     suspend fun entryOf(malId: Long): MalEntryStatus? = animeStatus(malId).entry
 
-    suspend fun syncCompletedEpisode(malId: Long, watched: Int) = mutex.withLock {
-        val current = tokens ?: return@withLock
-        val token = accessToken(current)
-        val body = "num_watched_episodes=${encode(watched.toString())}"
-        val request = HttpRequest.newBuilder(URI.create("$API/anime/$malId/my_list_status"))
-            .header("Authorization", "Bearer $token")
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .method("PATCH", HttpRequest.BodyPublishers.ofString(body))
-            .build()
-        requestJson(request)
-    }
-
     private suspend fun userRequest(token: String): MyAnimeListUser {
         val request = HttpRequest.newBuilder(URI.create("$API/users/@me?fields=picture"))
             .header("Authorization", "Bearer $token").GET().build()

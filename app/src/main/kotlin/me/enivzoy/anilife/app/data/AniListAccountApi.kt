@@ -214,6 +214,28 @@ internal class AniListAccountApi(
         check(confirmed == progress) { "AniList confirmed ${confirmed ?: "missing"} watched episodes after requesting $progress" }
     }
 
+    /** Playback's write: the new count, plus a status or a finished rewatch when the plan says so. */
+    suspend fun pushProgress(token: String, mediaId: Long, update: ProgressUpdate, current: ListSnapshot?) {
+        val (declarations, arguments, extra) = rewatchArguments(current.takeIf { update.repeat != null }, update.repeat)
+        val statusDeclaration = if (update.status != null) ", \$status: MediaListStatus" else ""
+        // Starting a title filed away in a custom list is the viewer putting it on Watching.
+        val statusArgument = if (update.status != null) ", status: \$status, hiddenFromStatusLists: false" else ""
+        val mutation = """
+            mutation (${'$'}mediaId: Int, ${'$'}progress: Int$statusDeclaration$declarations) {
+              SaveMediaListEntry(mediaId: ${'$'}mediaId, progress: ${'$'}progress$statusArgument$arguments) {
+                id progress status repeat
+              }
+            }
+        """
+        val data = request(token, mutation, buildJsonObject {
+            put("mediaId", mediaId)
+            put("progress", update.progress)
+            update.status?.let { put("status", it) }
+            extra.forEach { (name, value) -> put(name, value) }
+        })
+        update.repeat?.let { confirmedRepeat(data, it) }
+    }
+
     /** Take a title off the list whatever its status. False when there was nothing to delete. */
     suspend fun deleteByMedia(token: String, mediaId: Long): Boolean {
         val current = snapshot(token, mediaId) ?: return false

@@ -62,13 +62,13 @@ import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Slider
 import me.enivzoy.anilife.app.data.ContinueStoreInstance
+import me.enivzoy.anilife.app.data.MalProgressSync
 import me.enivzoy.anilife.app.data.WatchActivityInstance
 import me.enivzoy.anilife.app.data.AnimeEpisode
 import me.enivzoy.anilife.app.data.AnimeVideoSource
 import me.enivzoy.anilife.app.data.AnimeSubtitleSource
 import me.enivzoy.anilife.app.data.AppSettings
 import me.enivzoy.anilife.app.data.AniListSync
-import me.enivzoy.anilife.app.data.MyAnimeListSync
 import me.enivzoy.anilife.app.player.MpvPlaybackEngine
 import me.enivzoy.anilife.core.model.AnimeCard
 import me.enivzoy.anilife.core.model.AnimeDetail
@@ -318,13 +318,6 @@ fun PlayerScreen(
         nextEpisode.value?.let(onEpisodeChange)
     }
 
-    LaunchedEffect(engine, engine?.hasEnded, animeCard?.malId, episode) {
-        if (engine?.hasEnded == true) {
-            val malId = animeCard?.malId ?: return@LaunchedEffect
-            val watched = episode?.toInt() ?: return@LaunchedEffect
-            runCatching { MyAnimeListSync.syncCompletedEpisode(malId, watched) }
-        }
-    }
     // AniList progress is submitted once the configured share of the episode has been watched
     // (settings.aniListSubmitPercent, default 80%); a finished episode always submits as well.
     var aniListSubmitted by remember(animeCard?.id, episode) { mutableStateOf(false) }
@@ -339,6 +332,7 @@ fun PlayerScreen(
             if (duration > 0.0 && player.positionSeconds / duration * 100.0 >= settings.aniListSubmitPercent) {
                 aniListSubmitted = true
                 AniListSync.syncCompletedEpisode(anime, watched)
+                watched.takeIf { it % 1.0 == 0.0 }?.let { MalProgressSync.submit(anime, it.toInt()) }
             }
         }
     }
@@ -348,6 +342,7 @@ fun PlayerScreen(
             val watched = episode ?: return@LaunchedEffect
             aniListSubmitted = true
             AniListSync.syncCompletedEpisode(anime, watched)
+            watched.takeIf { it % 1.0 == 0.0 }?.let { MalProgressSync.submit(anime, it.toInt()) }
         }
     }
 

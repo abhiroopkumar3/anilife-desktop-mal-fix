@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import java.nio.file.Path
 import me.enivzoy.anilife.app.data.AccountAdoption
 import me.enivzoy.anilife.app.data.AccountLibrary
+import me.enivzoy.anilife.app.data.MalProgressSync
 import me.enivzoy.anilife.app.data.AniListRepository
 import me.enivzoy.anilife.app.data.AnimeVideoProviders
 import me.enivzoy.anilife.app.data.DiscordOAuth
@@ -197,6 +198,7 @@ fun AniLifeApp(
         repository.onBulkSaved = { pushScope.launch { AccountLibrary.pushSaved() } }
         AccountAdoption.settleAfterRestore()
         AccountLibrary.retryPending()
+        MalProgressSync.drain()
         DiscordOAuth.restore()
     }
     LaunchedEffect(settings.checkUpdatesOnLaunch) {

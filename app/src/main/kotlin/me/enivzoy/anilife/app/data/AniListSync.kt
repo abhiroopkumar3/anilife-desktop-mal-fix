@@ -302,26 +302,14 @@ object AniListSync {
     private suspend fun syncPendingProgress(account: AniListUser, auth: AniListCredentials) {
         val pending = listStore.pendingProgress(account.id)
         for ((mediaId, queued) in pending) {
-            val current = api.entry(auth.accessToken, account.id, mediaId)
-            val requested = queued.anime.episodes?.takeIf { it > 0 }
-                ?.let(queued.episode::coerceAtMost) ?: queued.episode
-            if (current != null && current.progress >= requested) {
-                listStore.removePendingProgress(account.id, mediaId)
-                continue
+            val current = api.snapshot(auth.accessToken, mediaId)
+            val update = planProgressUpdate(current, queued.episode, queued.anime.episodes)
+            if (update != null) {
+                api.pushProgress(auth.accessToken, mediaId, update, current)
+                api.entry(auth.accessToken, account.id, mediaId)?.let { replaceEntry(it) }
+                // A push that finished the series takes the title off Continue Watching.
+                if (update.status == "COMPLETED") ContinueStoreInstance.finishedOnAccount(mediaId, update.progress)
             }
-            val nextStatus = when (current?.status) {
-                null, AniListListStatus.PLANNING -> AniListListStatus.CURRENT
-                else -> current.status
-            }
-            val saved = api.save(
-                token = auth.accessToken,
-                entryId = current?.entryId,
-                mediaId = mediaId,
-                status = nextStatus,
-                progress = maxOf(current?.progress ?: 0, requested),
-                score = current?.score ?: 0.0,
-            )
-            replaceEntry(saved)
             listStore.removePendingProgress(account.id, mediaId)
         }
         refreshPendingCount(account.id)

@@ -70,6 +70,16 @@ class ContinueStore(private val file: File = continueFile()) {
             existing
         }
 
+    /**
+     * The account finished the series on this push: take the row off, unless it is already on an
+     * episode past [progress]. Not dismissed, so a rewatch begun elsewhere can bring it back.
+     */
+    fun finishedOnAccount(animeId: Long, progress: Int) {
+        val row = mutableEntries.value.firstOrNull { it.anime.id == animeId } ?: return
+        if (row.progress.episode > progress) return
+        remove(animeId)
+    }
+
     /** Put [entry] in as it is, keeping its own timestamp. Used when the account moves a row. */
     fun replace(entry: ContinueEntry) = synchronized(lock) {
         val updated = (mutableEntries.value.filterNot { it.anime.id == entry.anime.id } + entry)
