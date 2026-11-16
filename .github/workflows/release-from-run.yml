@@ -57,7 +57,7 @@ jobs:
         shell: bash
         run: |
           version=$(grep -oP 'val defaultVersion = "\K[^"]+' app/build.gradle.kts)
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Bad version '$version'"; exit 1; }
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-AK[0-9]+)?$ ]] || { echo "Bad version '$version'"; exit 1; }
           tag="v$version"
 
           # GitHub turns "#" in file names into "." on upload; do it here so the names are known.

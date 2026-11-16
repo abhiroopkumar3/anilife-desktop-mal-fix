@@ -147,8 +147,18 @@ class Updater(
             return base.resolve("AniLife").resolve("updates")
         }
 
-        fun parseVersion(version: String): List<Int> =
-            version.trim().split('.').mapNotNull { it.toIntOrNull() }.ifEmpty { listOf(0) }
+        /**
+         * "1.0.7" is [1, 0, 7]. A fork patch suffix counts as one more number, so "1.0.7-AK2" is
+         * [1, 0, 7, 2]: newer than 1.0.7 and older than 1.0.8, which keeps this fork's releases
+         * from ever running ahead of the original project's.
+         */
+        fun parseVersion(version: String): List<Int> {
+            val trimmed = version.trim()
+            val patch = Regex("-AK(\\d+)$", RegexOption.IGNORE_CASE).find(trimmed)
+            val base = if (patch != null) trimmed.removeSuffix(patch.value) else trimmed
+            val parts = base.split('.').mapNotNull { it.toIntOrNull() }.ifEmpty { listOf(0) }
+            return if (patch != null) parts + patch.groupValues[1].toInt() else parts
+        }
 
         fun isNewer(candidate: String, current: String): Boolean {
             val left = parseVersion(candidate)

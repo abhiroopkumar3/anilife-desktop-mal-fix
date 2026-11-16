@@ -43,7 +43,7 @@ jobs:
           } else {
             $v = (Select-String -Path app/build.gradle.kts -Pattern 'val defaultVersion = "([^"]+)"').Matches[0].Groups[1].Value
           }
-          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Version '$v' must look like 1.2.3 (MSI requirement)" }
+          if ($v -notmatch '^\d+\.\d+\.\d+(-AK\d+)?$') { throw "Version '$v' must look like 1.2.3 or 1.2.3-AK1" }
           "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "Building version $v"
 

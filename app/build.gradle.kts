@@ -53,6 +53,8 @@ dependencies {
 // Overridable from CI: -PappVersion=1.2.3 -Pportable=true
 val defaultVersion = "1.0.8"
 val appVersion = providers.gradleProperty("appVersion").orNull ?: defaultVersion
+// Windows installers only accept x.y.z, so a fork suffix such as "-AK2" stays out of the package version.
+val packageSemver = Regex("""^\d+\.\d+\.\d+""").find(appVersion)?.value ?: appVersion
 val portableBuild = providers.gradleProperty("portable").orNull == "true"
 val generatedVersionResources = layout.buildDirectory.dir("generated/versionResources")
 
@@ -79,7 +81,7 @@ compose.desktop {
                 targetFormats(TargetFormat.Exe, TargetFormat.Msi)
             }
             packageName = "AniLife"
-            packageVersion = appVersion
+            packageVersion = packageSemver
             appResourcesRootDir = file("src/main/appResources")
             modules("java.instrument", "java.net.http", "jdk.httpserver", "jdk.unsupported")
             linux {
