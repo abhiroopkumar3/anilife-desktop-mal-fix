@@ -121,6 +121,19 @@ internal class AniListAccountApi(
     suspend fun activityHistory(token: String, userId: Long): Map<Long, Int> =
         parseActivityHistory(request(token, ACTIVITY_QUERY, buildJsonObject { put("id", userId) }))
 
+    /** The viewer's banner and anime totals, as Android's `AniListClient.viewer` reads them. */
+    suspend fun profileStats(token: String): AccountStats {
+        val viewer = request(token, PROFILE_QUERY, buildJsonObject {})["Viewer"] as? JsonObject ?: return AccountStats()
+        val anime = ((viewer["statistics"] as? JsonObject)?.get("anime")) as? JsonObject
+        return AccountStats(
+            banner = viewer.string("bannerImage"),
+            titles = anime?.int("count") ?: 0,
+            episodes = anime?.int("episodesWatched") ?: 0,
+            minutesWatched = anime?.long("minutesWatched") ?: 0L,
+            meanScore = anime?.double("meanScore") ?: 0.0,
+        )
+    }
+
     // ---- the card menu's writes, as Android's AniListClient makes them ----
 
     /** One entry's status, count, rewatch count and dates, read by title. Null when it is not on the list. */
@@ -461,6 +474,15 @@ internal class AniListAccountApi(
 
         const val ACTIVITY_QUERY = """
             query (${'$'}id: Int) { User(id: ${'$'}id) { stats { activityHistory { date amount } } } }
+        """
+
+        const val PROFILE_QUERY = """
+            query {
+              Viewer {
+                bannerImage
+                statistics { anime { count episodesWatched minutesWatched meanScore } }
+              }
+            }
         """
 
         const val VIEWER_QUERY = """

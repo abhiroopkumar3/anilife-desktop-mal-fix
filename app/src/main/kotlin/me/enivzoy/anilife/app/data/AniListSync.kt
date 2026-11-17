@@ -155,6 +155,14 @@ object AniListSync {
         if (mutableUser.value?.id == account.id) mutableActivity.value = days
     }
 
+    /** The account's banner and totals for the account sheet. Null when AniList will not say. */
+    suspend fun profileStats(): AccountStats? {
+        val (_, auth) = runCatching { mutex.withLock { requireConnected() } }.getOrNull() ?: return null
+        return runCatching {
+            kotlinx.coroutines.withTimeoutOrNull(8_000L) { api.profileStats(auth.accessToken) }
+        }.getOrNull()
+    }
+
     suspend fun refreshList() = mutex.withLock {
         requireConnected()
         refreshInternal()

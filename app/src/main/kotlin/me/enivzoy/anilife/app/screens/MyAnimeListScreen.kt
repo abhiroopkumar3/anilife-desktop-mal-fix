@@ -44,7 +44,6 @@ import me.enivzoy.anilife.app.data.AniListSync
 import me.enivzoy.anilife.app.data.WatchActivityInstance
 import me.enivzoy.anilife.app.data.mergedActivity
 import me.enivzoy.anilife.app.ui.ActivityHeatmap
-import me.enivzoy.anilife.app.data.MyAnimeListEntry
 import me.enivzoy.anilife.app.data.MyAnimeListSync
 import me.enivzoy.anilife.app.ui.AniLifeColors
 
@@ -59,7 +58,6 @@ fun MyAnimeListScreen(
     val user by MyAnimeListSync.user.collectAsState()
     val configured by MyAnimeListSync.configured.collectAsState()
     val scope = rememberCoroutineScope()
-    var entries by remember { mutableStateOf<List<MyAnimeListEntry>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -67,7 +65,7 @@ fun MyAnimeListScreen(
         loading = true
         error = null
         try {
-            entries = MyAnimeListSync.list()
+            me.enivzoy.anilife.app.data.AccountLibrary.refresh()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Throwable) {
@@ -75,10 +73,6 @@ fun MyAnimeListScreen(
         } finally {
             loading = false
         }
-    }
-
-    LaunchedEffect(user?.id) {
-        if (user != null) refreshMalList()
     }
 
     var showApiDialog by remember { mutableStateOf(false) }
@@ -90,7 +84,6 @@ fun MyAnimeListScreen(
             error = null
             try {
                 AccountAdoption.connectMyAnimeList()
-                refreshMalList()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Throwable) {
@@ -161,7 +154,6 @@ fun MyAnimeListScreen(
                     TextButton(onClick = {
                         scope.launch {
                             MyAnimeListSync.disconnect()
-                            entries = emptyList()
                         }
                     }) { Text("Disconnect") }
                     me.enivzoy.anilife.app.ui.EditApiValuesButton(me.enivzoy.anilife.app.ui.ApiService.MAL) { showApiDialog = true }
@@ -194,37 +186,5 @@ fun MyAnimeListScreen(
 
         Spacer(Modifier.height(18.dp))
         AniListAccountSettings(repository)
-
-        val aniListUser by AniListSync.user.collectAsState()
-        val aniListActivity by AniListSync.activity.collectAsState()
-        val localActivity by WatchActivityInstance.days.collectAsState()
-        LaunchedEffect(aniListUser?.id) { if (aniListUser != null) AniListSync.refreshActivity() }
-        if (aniListUser != null || user != null) {
-            Spacer(Modifier.height(18.dp))
-            val merged = remember(localActivity, aniListActivity) { mergedActivity(localActivity, aniListActivity) }
-            ActivityHeatmap(merged, fromAccount = aniListUser != null)
-        }
-
-        if (user != null) {
-            Spacer(Modifier.height(18.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Rounded.Sync, contentDescription = null, tint = AniLifeColors.MutedForeground)
-                Text("MyAnimeList list", color = AniLifeColors.Foreground, fontSize = 17.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                Text("${entries.size} titles", color = AniLifeColors.MutedForeground, fontSize = 12.sp)
-            }
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                items(entries, key = { it.id }) { entry ->
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                            .background(AniLifeColors.Card.copy(alpha = 0.65f))
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(entry.title, color = AniLifeColors.Foreground, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1)
-                        Text("${entry.status.replace('_', ' ')} · ${entry.watched} watched", color = AniLifeColors.MutedForeground, fontSize = 11.sp)
-                    }
-                }
-            }
-        }
     }
 }

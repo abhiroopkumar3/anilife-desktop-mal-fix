@@ -346,6 +346,13 @@ fun AniLifeApp(
     }
 
     var paletteOpen by remember { mutableStateOf(false) }
+    var accountOpen by remember { mutableStateOf(false) }
+    // The account the lists follow: AniList or MyAnimeList, whichever is the active one.
+    val accountService = me.enivzoy.anilife.app.data.serviceToKeep(
+        aniListUser != null, malUser != null, null,
+    )
+    val accountName = if (accountService == me.enivzoy.anilife.app.data.ListService.ANILIST) aniListUser?.name else malUser?.name
+    val accountAvatar = if (accountService == me.enivzoy.anilife.app.data.ListService.ANILIST) aniListUser?.avatar else malUser?.picture
 
     Box(
         Modifier.fillMaxSize()
@@ -370,6 +377,10 @@ fun AniLifeApp(
                 onSearch = { paletteOpen = true },
                 refresh = if (settings.refreshButtonPlacement == "sidebar") refresh else null,
                 refreshShown = showRefresh,
+                account = if (accountService != null && accountName != null) {
+                    me.enivzoy.anilife.app.ui.SidebarAccount(accountName, accountAvatar, accountOpen)
+                } else null,
+                onAccount = { accountOpen = true },
             )
         }
 
@@ -546,6 +557,15 @@ fun AniLifeApp(
         }
     }
 
+    if (accountOpen && accountService != null && accountName != null) {
+        me.enivzoy.anilife.app.ui.AccountSheet(
+            service = accountService,
+            name = accountName,
+            avatar = accountAvatar,
+            onOpenAnime = { accountOpen = false; navigateTo(Screen.Detail(it)) },
+            onDismiss = { accountOpen = false },
+        )
+    }
     if (paletteOpen) {
         CommandPalette(
             repository = repository,

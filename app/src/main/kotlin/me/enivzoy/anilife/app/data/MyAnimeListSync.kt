@@ -255,6 +255,25 @@ object MyAnimeListSync {
     /** The entry's current status, for a move that depends on it (a rewatch). Null when not listed. */
     suspend fun entryOf(malId: Long): MalEntryStatus? = animeStatus(malId).entry
 
+    /** The account's totals for the account sheet; MyAnimeList has no banner. Null when it will not say. */
+    suspend fun profileStats(): AccountStats? {
+        val current = tokens ?: return null
+        return runCatching {
+            kotlinx.coroutines.withTimeoutOrNull(8_000L) {
+                val token = mutex.withLock { accessToken(current) }
+                val request = HttpRequest.newBuilder(URI.create("$API/users/@me?fields=anime_statistics"))
+                    .header("Authorization", "Bearer $token").GET().build()
+                val stats = requestJson(request)["anime_statistics"] as? kotlinx.serialization.json.JsonObject
+                fun number(name: String) = (stats?.get(name) as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull?.toDoubleOrNull()
+                AccountStats(
+                    titles = number("num_items")?.toInt() ?: 0,
+                    minutesWatched = ((number("num_days_watched") ?: 0.0) * 1440).toLong(),
+                    meanScore = number("mean_score") ?: 0.0,
+                )
+            }
+        }.getOrNull()
+    }
+
     private suspend fun userRequest(token: String): MyAnimeListUser {
         val request = HttpRequest.newBuilder(URI.create("$API/users/@me?fields=picture"))
             .header("Authorization", "Bearer $token").GET().build()
