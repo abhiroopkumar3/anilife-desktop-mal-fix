@@ -75,7 +75,8 @@ Filename: "{#RepoUrl}"; Description: "Open the {#AppName} page on GitHub"; Flags
 procedure RemoveOldMsiInstall();
 var
   Names: TArrayOfString;
-  I, ResultCode, WindowsInstaller: Integer;
+  I, ResultCode: Integer;
+  WindowsInstaller: Cardinal;
   Key, DisplayName: String;
 begin
   if not RegGetSubkeyNames(HKLM64, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', Names) then
