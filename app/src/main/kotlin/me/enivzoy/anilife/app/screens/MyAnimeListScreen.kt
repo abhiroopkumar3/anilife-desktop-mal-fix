@@ -83,8 +83,6 @@ fun MyAnimeListScreen(
 
     var showApiDialog by remember { mutableStateOf(false) }
 
-    // A sign-in that does not complete (browser closed, access refused) just leaves the Connect button
-    // showing again, with no message, so it can be tried from the start.
     fun connectMal() {
         MyAnimeListSync.configure()
         scope.launch {
@@ -96,7 +94,7 @@ fun MyAnimeListScreen(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Throwable) {
-                System.err.println("MyAnimeList sign-in did not complete: ${failure.message}")
+                error = failure.message ?: "MyAnimeList sign-in failed."
             } finally {
                 loading = false
             }

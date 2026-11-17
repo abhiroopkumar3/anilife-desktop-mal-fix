@@ -231,10 +231,7 @@ fun AniListAccountSettings(repository: AniListRepository) {
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (failure: Throwable) {
-                                // A sign-in that does not complete just starts over from the Connect button.
-                                System.err.println("AniList sign-in did not complete: ${failure.message}")
-                                tokenText = ""
-                                showTokenField = false
+                                actionError = failure.message ?: "AniList sign-in failed."
                             }
                         }
                     },

@@ -78,7 +78,7 @@ object MyAnimeListSync {
     }
 
     suspend fun connect() {
-        require(clientId.isNotBlank()) { "Enter your MyAnimeList client ID first." }
+        require(clientId.isNotBlank()) { "Enter your MyAnimeList client ID in Settings first." }
         val state = randomUrlToken()
         val verifier = randomUrlToken()
         // MyAnimeList only supports the "plain" PKCE method, so the challenge is the verifier itself.
