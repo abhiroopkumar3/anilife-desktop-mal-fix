@@ -126,7 +126,8 @@ fun RefreshButton(host: RefreshHost, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .shadow(8.dp, shape)
-            .size(48.dp)
+            // The same 40 dp square, and 20 dp icon, as the sidebar's own icons.
+            .size(40.dp)
             .clip(shape)
             .background(AniLifeColors.Card)
             // Same wash the sidebar icons get on hover, laid over the dark base so nothing shows through.
@@ -141,7 +142,7 @@ fun RefreshButton(host: RefreshHost, modifier: Modifier = Modifier) {
             imageVector = Icons.Rounded.Refresh,
             contentDescription = if (host.busy) "Refreshing" else "Refresh",
             tint = if (host.busy) AniLifeColors.Primary else AniLifeColors.Foreground,
-            modifier = Modifier.size(22.dp).rotate(if (host.busy) angle else 0f),
+            modifier = Modifier.size(20.dp).rotate(if (host.busy) angle else 0f),
         )
     }
 }
