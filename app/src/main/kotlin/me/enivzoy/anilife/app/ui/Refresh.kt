@@ -9,9 +9,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Icon
@@ -29,6 +32,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.NonCancellable
@@ -100,7 +106,11 @@ fun RefreshOn(host: RefreshHost, reload: suspend () -> Unit) {
     }
 }
 
-/** The round refresh button that floats in a screen's bottom right corner. */
+/**
+ * The refresh button that floats in a screen's corner: a dark rounded square like the sidebar's
+ * icons, with the same grey wash on hover. Every colour is a theme token (card, border, sidebar
+ * accent, foreground, primary), so a palette, preset or theme edit recolours it with the rest.
+ */
 @Composable
 fun RefreshButton(host: RefreshHost, modifier: Modifier = Modifier) {
     val spin = rememberInfiniteTransition(label = "refresh spin")
@@ -110,14 +120,21 @@ fun RefreshButton(host: RefreshHost, modifier: Modifier = Modifier) {
         animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Restart),
         label = "refresh angle",
     )
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val shape = RoundedCornerShape(10.dp)
     Box(
         modifier = modifier
-            .shadow(8.dp, CircleShape)
+            .shadow(8.dp, shape)
             .size(48.dp)
-            .clip(CircleShape)
+            .clip(shape)
             .background(AniLifeColors.Card)
-            .border(1.dp, AniLifeColors.Border, CircleShape)
-            .clickable(role = Role.Button, onClick = { host.request() }),
+            // Same wash the sidebar icons get on hover, laid over the dark base so nothing shows through.
+            .background(if (hovered) AniLifeColors.SidebarAccent.copy(alpha = 0.65f) else Color.Transparent)
+            .border(1.dp, AniLifeColors.Border, shape)
+            .hoverable(interaction)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = { host.request() }),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
