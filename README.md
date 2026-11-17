@@ -15,7 +15,7 @@ Everything else is the original code, kept up to date by the sync below.
 
 ## Download
 
-Open the [Releases](../../releases) page and download `anilife-<version>.base.exe` (or the `.msi`, or the portable versions) from the latest release. The portable `.exe` is a single self-extracting file that installs nothing. The installers are **not code-signed**, so Windows SmartScreen may warn. Choose "More info", then "Run anyway", if you trust the source.
+Open the [Releases](../../releases) page and download `anilife-<version>.base.exe` (or the `.msi`, or the portable versions) from the latest release. The `.exe` is a setup wizard: it asks for the install folder, the Start Menu folder and a desktop shortcut, then offers to launch AniLife or open this page. Installing it over an older `.msi` install removes the `.msi` copy first; your settings and `.env` are kept. The portable `.exe` is a single self-extracting file that installs nothing. The installers are **not code-signed**, so Windows SmartScreen may warn. Choose "More info", then "Run anyway", if you trust the source.
 
 ## How the automation works
 

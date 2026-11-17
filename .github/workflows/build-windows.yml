@@ -162,13 +162,13 @@ jobs:
           "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "Building version $v"
 
-      - name: Build base installers (.msi + .exe)
+      # The base .exe is the Inno Setup wizard further down; only the .msi comes from Gradle here.
+      - name: Build base installer (.msi)
         run: |
-          .\gradlew :app:packageMsi :app:packageExe "-PappVersion=$env:VERSION" --no-daemon --no-configuration-cache
+          .\gradlew :app:packageMsi "-PappVersion=$env:VERSION" --no-daemon --no-configuration-cache
           New-Item -ItemType Directory -Force dist | Out-Null
           $bin = "app/build/compose/binaries/main"
           Copy-Item (Get-ChildItem "$bin/msi/*.msi" | Select-Object -First 1) "dist/anilife-$env:VERSION#base.msi"
-          Copy-Item (Get-ChildItem "$bin/exe/*.exe" | Select-Object -First 1) "dist/anilife-$env:VERSION#base.exe"
 
       - name: Build portable .msi (no shortcuts, per-user, choose folder)
         run: |
@@ -208,6 +208,20 @@ jobs:
             $stream.Write($bytes, 0, $bytes.Length)
           }
           $stream.Close()
+
+      # The installer wizard: install folder, Start Menu folder, desktop shortcut, then a last page
+      # with Launch and a GitHub link. Packs the same app image the portable .exe uses.
+      - name: Build installer wizard (.exe)
+        run: |
+          choco install innosetup --no-progress -y
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "Inno Setup compiler not found at $iscc" }
+          $img = Join-Path $PWD "app/build/compose/binaries/main/app/AniLife"
+          if (-not (Test-Path "$img/AniLife.exe")) { throw "App image not found at $img" }
+          & $iscc "/DVersion=$env:VERSION" "/DSourceDir=$img" "/O$PWD\dist" "/Fanilife-$env:VERSION#base" scripts/installer/anilife.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed ($LASTEXITCODE)" }
+          $wizard = Get-Item "dist/anilife-$env:VERSION#base.exe"
+          if ($wizard.Length -lt 50MB) { throw "Installer is only $($wizard.Length) bytes; the payload is missing." }
 
       - name: Write version manifest
         run: |
