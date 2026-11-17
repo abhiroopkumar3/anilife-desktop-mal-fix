@@ -254,6 +254,7 @@ private val settingSearchEntries = listOf(
     SettingSearchEntry("Video providers", SettingsPage.Servers, "providers servers streaming wasm extensions"),
     SettingSearchEntry("Discord Rich Presence", SettingsPage.Accounts, "discord activity status watching idle connect"),
     SettingSearchEntry("Discord Application ID", SettingsPage.Accounts, "discord developer application id"),
+    SettingSearchEntry("Only episodes you can watch", SettingsPage.Content, "continue watching hide next episode aired airing schedule"),
     SettingSearchEntry("Title display language", SettingsPage.Content, "anime name title romaji english native"),
     SettingSearchEntry("App font", SettingsPage.Appearance, "font typeface text sans serif mono"),
     SettingSearchEntry("Refresh button", SettingsPage.Appearance, "refresh reload button position placement corner sidebar left bar"),
@@ -1137,6 +1138,14 @@ private fun ContentSettings(settings: AppSettings, onSettingsChange: ((AppSettin
             selected = settings.titleLanguage,
             onSelect = { value -> onSettingsChange { it.copy(titleLanguage = value) } },
         )
+    }
+    SettingsRow(
+        "Only episodes you can watch",
+        "Drop a title from Continue Watching until its next episode is out.",
+    ) {
+        SettingsSwitch(settings.hideUnairedFromContinue) { enabled ->
+            onSettingsChange { it.copy(hideUnairedFromContinue = enabled) }
+        }
     }
 }
 

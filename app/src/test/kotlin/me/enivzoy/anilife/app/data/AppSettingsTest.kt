@@ -160,6 +160,21 @@ class AppSettingsTest {
     }
 
     @Test
+    fun onlyEpisodesYouCanWatchIsOffByDefaultAsOnAndroidAndPersistsWhenSwitchedOn() {
+        val root = Files.createTempDirectory("AniLife-settings-continue")
+        try {
+            val file = root.resolve("settings.properties").toFile()
+            assertEquals(false, AppSettingsStore(file).settings.value.hideUnairedFromContinue)
+            AppSettingsStore(file).update { it.copy(hideUnairedFromContinue = true) }
+            assertEquals(true, AppSettingsStore(file).settings.value.hideUnairedFromContinue)
+            AppSettingsStore(file).update { it.copy(hideUnairedFromContinue = false) }
+            assertEquals(false, AppSettingsStore(file).settings.value.hideUnairedFromContinue)
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
     fun homeSectionOrderAndVisibilityPersistAndMissingSectionsAreRestored() {
         val root = Files.createTempDirectory("AniLife-settings-home")
         try {

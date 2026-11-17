@@ -1,6 +1,7 @@
 ﻿package me.enivzoy.anilife.core.net
 
 import me.enivzoy.anilife.core.model.AiringEntry
+import me.enivzoy.anilife.core.model.AiringTime
 import me.enivzoy.anilife.core.model.AnimeCard
 import me.enivzoy.anilife.core.model.AnimeDetail
 import me.enivzoy.anilife.core.model.Home
@@ -367,6 +368,49 @@ class AniListClient(
     }
 
      
+    /**
+     * Airing times of just [ids] between [from] and [to] (epoch seconds), soonest first.
+     *
+     * A lookup by title rather than a sweep of the whole schedule: a fortnight of everything airing
+     * is far past the paging cap of [schedule], and a Continue Watching row only needs its own
+     * titles.
+     */
+    suspend fun airingTimes(ids: List<Long>, from: Long, to: Long): List<AiringTime> {
+        if (ids.isEmpty()) return emptyList()
+        val query = """
+            query (${'$'}page: Int, ${'$'}ids: [Int], ${'$'}from: Int, ${'$'}to: Int) {
+              Page(page: ${'$'}page, perPage: 50) {
+                pageInfo { hasNextPage }
+                airingSchedules(mediaId_in: ${'$'}ids, airingAt_greater: ${'$'}from, airingAt_lesser: ${'$'}to, sort: TIME) {
+                  airingAt episode mediaId
+                }
+              }
+            }
+        """.trimIndent()
+        val times = mutableListOf<AiringTime>()
+        for (page in 1..8) {
+            val data = execute(
+                query,
+                buildJsonObject {
+                    put("page", page)
+                    put("ids", buildJsonArray { ids.distinct().forEach { add(JsonPrimitive(it)) } })
+                    put("from", from)
+                    put("to", to)
+                },
+            )
+            val pageObj = data["Page"] as? JsonObject ?: break
+            pageObj["airingSchedules"].asArray()?.forEach { element ->
+                val schedule = element as? JsonObject ?: return@forEach
+                val mediaId = schedule.long("mediaId") ?: return@forEach
+                val airingAt = schedule.long("airingAt") ?: return@forEach
+                val episode = schedule.int("episode") ?: return@forEach
+                times += AiringTime(mediaId = mediaId, episode = episode, airingAt = airingAt)
+            }
+            if ((pageObj["pageInfo"] as? JsonObject)?.bool("hasNextPage") != true) break
+        }
+        return times.distinctBy { it.mediaId to it.episode }
+    }
+
     suspend fun random(showAdult: Boolean = false): AnimeCard? {        val page = Random.nextInt(1, 61)
         val query = """
             query (${'$'}page: Int, ${'$'}isAdult: Boolean) {

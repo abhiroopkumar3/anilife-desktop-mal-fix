@@ -42,6 +42,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,7 +59,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
+import me.enivzoy.anilife.app.data.UpcomingAiring
+import me.enivzoy.anilife.app.data.hideFromContinueUntilAired
+import me.enivzoy.anilife.app.data.returnsToContinueAt
 import me.enivzoy.anilife.app.data.AniListRepository
 import me.enivzoy.anilife.app.data.AppSettings
 import me.enivzoy.anilife.app.data.ContinueStoreInstance
@@ -89,6 +95,7 @@ fun HomeScreen(
     onContentReady: () -> Unit = {},
 ) {
     var attempt by remember { mutableStateOf(0) }
+    var scheduleReads by remember { mutableIntStateOf(0) }
     var state by remember(repository) {
         mutableStateOf<LoadState<Home>>(repository.cachedHome()?.let { LoadState.Ready(it) } ?: LoadState.Loading)
     }
@@ -108,6 +115,8 @@ fun HomeScreen(
     RefreshOn(refresh) {
         val result = loadState { repository.home(force = true) }
         if (result !is LoadState.Loading) state = result
+        // The schedule behind "Only episodes you can watch" is read again too, as on Android.
+        scheduleReads++
     }
 
     LaunchedEffect(state) {
@@ -119,7 +128,7 @@ fun HomeScreen(
         is LoadState.Failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             ErrorPanel(message = current.message, onRetry = { attempt++ })
         }
-        is LoadState.Ready -> HomeContent(current.value, repository, settings, onSettingsChange, onOpen)
+        is LoadState.Ready -> HomeContent(current.value, repository, settings, onSettingsChange, onOpen, scheduleReads)
     }
 }
 
@@ -130,8 +139,48 @@ private fun HomeContent(
     settings: AppSettings,
     onSettingsChange: ((AppSettings) -> AppSettings) -> Unit,
     onOpen: (Long) -> Unit,
+    scheduleReads: Int,
 ) {
-    val continueEntries by ContinueStoreInstance.entries.collectAsState()
+    val storedContinue by ContinueStoreInstance.entries.collectAsState()
+    val hideUnaired = settings.hideUnairedFromContinue
+    // "Only episodes you can watch": a title is hidden, never removed, until its next episode is out.
+    var upcoming by remember { mutableStateOf<UpcomingAiring>(emptyMap()) }
+    var nowSec by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
+    var dayReads by remember { mutableIntStateOf(0) }
+    val continueIds = remember(storedContinue) { storedContinue.map { it.anime.id }.distinct().sorted() }
+    // Read only while the setting is on, and only for the titles on the row. A failed read keeps what
+    // is already held, so a bad connection never hides or reveals rows by accident.
+    LaunchedEffect(hideUnaired, continueIds, scheduleReads, dayReads) {
+        if (!hideUnaired || continueIds.isEmpty()) {
+            upcoming = emptyMap()
+            return@LaunchedEffect
+        }
+        runCatching { repository.upcomingAirings(continueIds) }.onSuccess {
+            upcoming = it
+            nowSec = System.currentTimeMillis() / 1000
+        }
+    }
+    // Judge again at the moment the first hidden row's episode becomes watchable.
+    LaunchedEffect(hideUnaired, storedContinue, upcoming, nowSec) {
+        val returnsAt = if (hideUnaired) storedContinue.mapNotNull { returnsToContinueAt(it, upcoming, nowSec) }.minOrNull() else null
+        if (returnsAt != null) {
+            delay(((returnsAt - System.currentTimeMillis() / 1000) * 1000).coerceAtLeast(1_000L))
+            nowSec = System.currentTimeMillis() / 1000
+        }
+    }
+    // The window starts yesterday, so a window left open across midnight has to move on by a day.
+    LaunchedEffect(hideUnaired) {
+        if (!hideUnaired) return@LaunchedEffect
+        while (true) {
+            val zone = java.time.ZoneId.systemDefault()
+            val nextDay = java.time.LocalDate.now(zone).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+            delay((nextDay - System.currentTimeMillis()).coerceAtLeast(1_000L) + 1_000L)
+            dayReads++
+        }
+    }
+    val continueEntries = remember(storedContinue, hideUnaired, upcoming, nowSec) {
+        if (hideUnaired) storedContinue.filterNot { hideFromContinueUntilAired(it, upcoming, nowSec) } else storedContinue
+    }
     var continueMenu by remember { mutableStateOf<me.enivzoy.anilife.app.data.ContinueEntry?>(null) }
     continueMenu?.let { row ->
         ContinueActionsDialog(entry = row, onOpenDetails = { onOpen(row.anime.id) }, onDismiss = { continueMenu = null })

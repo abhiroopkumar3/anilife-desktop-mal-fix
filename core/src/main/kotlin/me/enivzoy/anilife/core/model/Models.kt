@@ -118,6 +118,9 @@ data class SearchPage(val results: List<AnimeCard> = emptyList(), val hasNext: B
 
 data class AiringEntry(val airingAt: Long, val episode: Int, val anime: AnimeCard)
 
+/** One episode's airing time for a title, without the card: what a lookup by title id returns. */
+data class AiringTime(val mediaId: Long, val episode: Int, val airingAt: Long)
+
 /** A stretch of an episode in seconds, used for skip markers. */
 data class Window(val start: Double, val end: Double) {
     val isValid: Boolean get() = start.isFinite() && end.isFinite() && end > start
