@@ -68,7 +68,7 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app
 
 [Run]
 Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
-Filename: "{#RepoUrl}"; Description: "Open the {#AppName} page on GitHub"; Flags: shellexec postinstall skipifsilent unchecked
+Filename: "{#RepoUrl}"; Description: "Open the {#AppName} page on GitHub"; Flags: shellexec postinstall skipifsilent
 
 [Code]
 // Earlier versions were installed with an .msi. Two copies of AniLife side by side would fight over
@@ -95,4 +95,73 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssInstall then
     RemoveOldMsiInstall();
+end;
+
+// ---- Uninstall: offer to remove the settings and data folder ----
+
+var
+  RemoveUserData: Boolean;
+
+// Asked before anything is removed. Ticked by default, so a full uninstall leaves nothing behind;
+// untick it to keep the settings, account sign-ins and downloads list for a later install. A silent
+// uninstall never deletes them.
+function InitializeUninstall(): Boolean;
+var
+  Form: TForm;
+  Prompt: TLabel;
+  Box: TCheckBox;
+  Ok, Cancel: TButton;
+begin
+  Result := True;
+  RemoveUserData := False;
+  if UninstallSilent then
+    Exit;
+  Form := TForm.Create(nil);
+  try
+    Form.BorderStyle := bsDialog;
+    Form.Position := poScreenCenter;
+    Form.Caption := 'Uninstall {#AppName}';
+    Form.ClientWidth := ScaleX(420);
+    Form.ClientHeight := ScaleY(150);
+
+    Prompt := TLabel.Create(Form);
+    Prompt.Parent := Form;
+    Prompt.AutoSize := False;
+    Prompt.WordWrap := True;
+    Prompt.SetBounds(ScaleX(16), ScaleY(16), ScaleX(388), ScaleY(48));
+    Prompt.Caption := 'This removes {#AppName} from this PC.';
+
+    Box := TCheckBox.Create(Form);
+    Box.Parent := Form;
+    Box.SetBounds(ScaleX(16), ScaleY(60), ScaleX(388), ScaleY(36));
+    Box.Caption := 'Also delete all settings and data (' + ExpandConstant('{localappdata}\AniLife') + ')';
+    Box.Checked := True;
+
+    Ok := TButton.Create(Form);
+    Ok.Parent := Form;
+    Ok.Caption := 'Uninstall';
+    Ok.ModalResult := mrOk;
+    Ok.Default := True;
+    Ok.SetBounds(ScaleX(236), ScaleY(110), ScaleX(80), ScaleY(26));
+
+    Cancel := TButton.Create(Form);
+    Cancel.Parent := Form;
+    Cancel.Caption := 'Cancel';
+    Cancel.ModalResult := mrCancel;
+    Cancel.Cancel := True;
+    Cancel.SetBounds(ScaleX(324), ScaleY(110), ScaleX(80), ScaleY(26));
+
+    if Form.ShowModal() = mrOk then
+      RemoveUserData := Box.Checked
+    else
+      Result := False;
+  finally
+    Form.Free();
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if (CurUninstallStep = usPostUninstall) and RemoveUserData then
+    DelTree(ExpandConstant('{localappdata}\AniLife'), True, True, True);
 end;
