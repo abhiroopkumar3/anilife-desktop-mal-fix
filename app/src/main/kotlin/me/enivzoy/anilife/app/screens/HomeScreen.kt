@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.distinctUntilChanged
 import me.enivzoy.anilife.app.data.UpcomingAiring
 import me.enivzoy.anilife.app.data.hideFromContinueUntilAired
@@ -85,6 +86,9 @@ import me.enivzoy.anilife.core.model.AnimeCard
 import me.enivzoy.anilife.core.model.AnimeDetail
 import me.enivzoy.anilife.core.model.Home
 
+/** How long a Home load may take before it counts as failed, the Android app's own 15 seconds. */
+private const val HOME_LOAD_TIMEOUT_MS = 15_000L
+
 @Composable
 fun HomeScreen(
     repository: AniListRepository,
@@ -96,6 +100,7 @@ fun HomeScreen(
 ) {
     var attempt by remember { mutableStateOf(0) }
     var scheduleReads by remember { mutableIntStateOf(0) }
+    var personalReads by remember { mutableIntStateOf(0) }
     var state by remember(repository) {
         mutableStateOf<LoadState<Home>>(repository.cachedHome()?.let { LoadState.Ready(it) } ?: LoadState.Loading)
     }
@@ -110,13 +115,21 @@ fun HomeScreen(
         }
     }
 
-    // The floating refresh button: live rows, with the page left up while they load. A failed reload
-    // shows the error panel, as Android's pull-to-refresh does.
+    // The floating refresh button: live rows, with the page left up while they load. As on Android, a
+    // request that fails or runs past 15 seconds does not tear the page down for an error: Android
+    // serves its offline catalogue instead, and the rows already on screen are this app's equivalent.
+    // Only a screen with nothing to show reports the failure.
     RefreshOn(refresh) {
-        val result = loadState { repository.home(force = true) }
-        if (result !is LoadState.Loading) state = result
-        // The schedule behind "Only episodes you can watch" is read again too, as on Android.
+        val result = withTimeoutOrNull(HOME_LOAD_TIMEOUT_MS) { loadState { repository.home(force = true) } }
+            ?: LoadState.Failed("Home request timed out. Check the connection and try again.")
+        when {
+            result is LoadState.Ready -> state = result
+            result is LoadState.Failed && state !is LoadState.Ready -> state = result
+        }
+        // The schedule behind "Only episodes you can watch" is read again too, as on Android, and so
+        // is the "Because you watched" row, which Android recomputes with every forced load.
         scheduleReads++
+        personalReads++
     }
 
     LaunchedEffect(state) {
@@ -128,7 +141,7 @@ fun HomeScreen(
         is LoadState.Failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             ErrorPanel(message = current.message, onRetry = { attempt++ })
         }
-        is LoadState.Ready -> HomeContent(current.value, repository, settings, onSettingsChange, onOpen, scheduleReads)
+        is LoadState.Ready -> HomeContent(current.value, repository, settings, onSettingsChange, onOpen, scheduleReads, personalReads)
     }
 }
 
@@ -140,6 +153,7 @@ private fun HomeContent(
     onSettingsChange: ((AppSettings) -> AppSettings) -> Unit,
     onOpen: (Long) -> Unit,
     scheduleReads: Int,
+    personalReads: Int,
 ) {
     val storedContinue by ContinueStoreInstance.entries.collectAsState()
     val hideUnaired = settings.hideUnairedFromContinue
@@ -211,13 +225,18 @@ private fun HomeContent(
 
     var becauseSeed by remember { mutableStateOf<AnimeCard?>(null) }
     var becauseItems by remember { mutableStateOf<List<AnimeCard>>(emptyList()) }
-    LaunchedEffect(libraryEntries) {
+    LaunchedEffect(libraryEntries, personalReads) {
         val seed = libraryEntries.firstOrNull()
-        becauseSeed = seed
-        becauseItems = if (seed != null) {
-            runCatching { repository.detail(seed.id).recommendations.take(12) }.getOrDefault(emptyList())
+        // A failed read keeps the row that is showing, as Android's personal rows do: a bonus on top of
+        // Home must not blink out because AniList hiccuped.
+        val found = if (seed != null) {
+            runCatching { repository.detail(seed.id).recommendations.take(12) }.getOrNull()
         } else {
             emptyList()
+        }
+        if (found != null || seed?.id != becauseSeed?.id) {
+            becauseSeed = seed
+            becauseItems = found.orEmpty()
         }
     }
 

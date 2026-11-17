@@ -60,6 +60,7 @@ class AniListException(override val message: String) : RuntimeException(message)
 class AniListClient(
     private val http: HttpClient = defaultHttpClient(),
     private val endpoint: String = ENDPOINT,
+    private val pacer: AniListPacer = AniListPacer.shared,
 ) {
     @Volatile
     var titleLanguage: String = "english"
@@ -484,10 +485,8 @@ class AniListClient(
             .POST(HttpRequest.BodyPublishers.ofString(payload))
             .build()
 
-        val response = withContext(Dispatchers.IO) {
-            http.send(request, HttpResponse.BodyHandlers.ofString())
-        }
-
+        // Paced against the budget AniList last reported, with a 429 waited out and retried, as on Android.
+        val response = pacer.send(http, request)
         if (response.statusCode() == 429) {
             throw AniListException("AniList rate limit reached — try again in a minute.")
         }

@@ -530,7 +530,9 @@ internal class AniListAccountApi(
                     .header("Authorization", "Bearer $token")
                     .POST(HttpRequest.BodyPublishers.ofString(json.encodeToString(JsonObject.serializer(), payload)))
                     .build()
-                val response = http.send(httpRequest, HttpResponse.BodyHandlers.ofString())
+                // Same budget, pacing and 429 retry as every other AniList call in the app.
+                val response = me.enivzoy.anilife.core.net.AniListPacer.shared.send(http, httpRequest)
+                if (response.statusCode() == 429) error("AniList rate limit reached — try again in a minute.")
                 parseGraphQlResponse(response.statusCode(), response.body())
             }
 
