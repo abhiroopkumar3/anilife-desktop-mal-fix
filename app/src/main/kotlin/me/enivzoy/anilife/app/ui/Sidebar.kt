@@ -114,13 +114,21 @@ fun AppSidebar(
             if (compact) Spacer(Modifier.height(6.dp)) else Spacer(Modifier.weight(1f))
 
             if (refresh != null) {
-                // The slot is kept on screens without a button, so the icons below never jump.
-                if (refreshShown) {
-                    NavIcon(Icons.Rounded.Refresh, if (refresh.busy) "Refreshing" else "Refresh", selected = refresh.busy, size = iconSize, spin = refresh.busy) {
-                        refresh.request()
-                    }
-                } else {
-                    Spacer(Modifier.size(iconSize))
+                // Kept on screens that have nothing to refresh, greyed out and not clickable, so the slot
+                // never empties and the icons below never jump.
+                NavIcon(
+                    Icons.Rounded.Refresh,
+                    when {
+                        !refreshShown -> "Refresh (nothing to refresh here)"
+                        refresh.busy -> "Refreshing"
+                        else -> "Refresh"
+                    },
+                    selected = refreshShown && refresh.busy,
+                    size = iconSize,
+                    spin = refreshShown && refresh.busy,
+                    enabled = refreshShown,
+                ) {
+                    refresh.request()
                 }
                 Spacer(Modifier.height(gap))
             }
@@ -143,24 +151,30 @@ private fun NavIcon(
     selected: Boolean,
     size: androidx.compose.ui.unit.Dp = 40.dp,
     spin: Boolean = false,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val background: Color = when {
+        !enabled -> Color.Transparent
         selected -> AniLifeColors.SidebarAccent
         hovered -> AniLifeColors.SidebarAccent.copy(alpha = 0.65f)
         else -> Color.Transparent
     }
-    val tint = if (selected || hovered) AniLifeColors.Foreground else AniLifeColors.MutedForeground
+    val tint = when {
+        !enabled -> AniLifeColors.MutedForeground.copy(alpha = 0.35f)
+        selected || hovered -> AniLifeColors.Foreground
+        else -> AniLifeColors.MutedForeground
+    }
 
     Box(
         modifier = Modifier
             .size(size)
             .clip(RoundedCornerShape(10.dp))
             .background(background)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .pointerHoverIcon(PointerIcon.Hand),
+            .clickable(interactionSource = interaction, indication = null, enabled = enabled, onClick = onClick)
+            .pointerHoverIcon(if (enabled) PointerIcon.Hand else PointerIcon.Default),
         contentAlignment = Alignment.Center,
     ) {
         Icon(

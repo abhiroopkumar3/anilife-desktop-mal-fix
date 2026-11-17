@@ -1180,7 +1180,7 @@ private fun AppearanceSettings(settings: AppSettings, onSettingsChange: ((AppSet
         "Where the button that reloads the screen sits: a corner of the page, or in the left bar above Notifications.",
     ) {
         SettingsSegmented(
-            choices = listOf("top-right" to "Top right", "bottom-right" to "Bottom right", "sidebar" to "Left bar"),
+            choices = listOf("sidebar" to "Left bar", "top-right" to "Top right", "bottom-right" to "Bottom right"),
             selected = settings.refreshButtonPlacement,
             onSelect = { value -> onSettingsChange { it.copy(refreshButtonPlacement = value) } },
         )

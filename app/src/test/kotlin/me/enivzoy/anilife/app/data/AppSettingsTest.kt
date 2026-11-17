@@ -133,12 +133,12 @@ class AppSettingsTest {
     }
 
     @Test
-    fun refreshButtonPlacementDefaultsToBottomRightAndPersistsEachChoice() {
+    fun refreshButtonPlacementDefaultsToTheLeftBarAndPersistsEachChoice() {
         val root = Files.createTempDirectory("AniLife-settings-refresh")
         try {
             val file = root.resolve("settings.properties").toFile()
-            assertEquals("bottom-right", AppSettingsStore(file).settings.value.refreshButtonPlacement)
-            for (placement in listOf("top-right", "sidebar", "bottom-right")) {
+            assertEquals("sidebar", AppSettingsStore(file).settings.value.refreshButtonPlacement)
+            for (placement in listOf("top-right", "bottom-right", "sidebar")) {
                 AppSettingsStore(file).update { it.copy(refreshButtonPlacement = placement) }
                 assertEquals(placement, AppSettingsStore(file).settings.value.refreshButtonPlacement)
             }
@@ -148,12 +148,12 @@ class AppSettingsTest {
     }
 
     @Test
-    fun anUnknownRefreshButtonPlacementFallsBackToBottomRight() {
+    fun anUnknownRefreshButtonPlacementFallsBackToTheLeftBar() {
         val root = Files.createTempDirectory("AniLife-settings-refresh-bad")
         try {
             val file = root.resolve("settings.properties").toFile()
             AppSettingsStore(file).update { it.copy(refreshButtonPlacement = "middle") }
-            assertEquals("bottom-right", AppSettingsStore(file).settings.value.refreshButtonPlacement)
+            assertEquals("sidebar", AppSettingsStore(file).settings.value.refreshButtonPlacement)
         } finally {
             root.toFile().deleteRecursively()
         }

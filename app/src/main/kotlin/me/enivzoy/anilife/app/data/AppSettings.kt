@@ -93,8 +93,8 @@ data class AppSettings(
     val themeCss: String = "",
     val sidebarIconBackgroundEnabled: Boolean = false,
     val sidebarIconShape: String = "rounded",
-    /** Where the refresh button sits: "top-right", "bottom-right" or "sidebar" (above Notifications). */
-    val refreshButtonPlacement: String = "bottom-right",
+    /** Where the refresh button sits: "sidebar" (above Notifications, the default), "top-right" or "bottom-right". */
+    val refreshButtonPlacement: String = "sidebar",
     val sidebarIconsJoined: Boolean = false,
     val appFont: String = "SansSerif",
     val appFontFile: String = "",
@@ -180,7 +180,7 @@ class AppSettingsStore(private val file: File = settingsFile()) {
             themeCss = properties.getProperty("themeCss", ""),
             sidebarIconBackgroundEnabled = properties.getProperty("sidebarIconBackgroundEnabled", "false").toBooleanStrictOrNull() ?: false,
             sidebarIconShape = properties.getProperty("sidebarIconShape", "rounded"),
-            refreshButtonPlacement = properties.getProperty("refreshButtonPlacement", "bottom-right"),
+            refreshButtonPlacement = properties.getProperty("refreshButtonPlacement", "sidebar"),
             sidebarIconsJoined = properties.getProperty("sidebarIconsJoined", "false").toBooleanStrictOrNull() ?: false,
             appFont = properties.getProperty("appFont", "SansSerif"),
             appFontFile = properties.getProperty("appFontFile", ""),
@@ -281,7 +281,7 @@ class AppSettingsStore(private val file: File = settingsFile()) {
         sidebarIconBackgroundColor = validColor(sidebarIconBackgroundColor, "#1A261A"),
         themeCss = themeCss.take(20_000),
         sidebarIconShape = sidebarIconShape.takeIf { it in sidebarShapes } ?: "rounded",
-        refreshButtonPlacement = refreshButtonPlacement.takeIf { it in refreshPlacements } ?: "bottom-right",
+        refreshButtonPlacement = refreshButtonPlacement.takeIf { it in refreshPlacements } ?: "sidebar",
         appFont = appFont.takeIf { it in fontFamilies } ?: "SansSerif",
         captionFontFile = captionFontFile.take(2048),
         appFontFile = appFontFile.take(2048),
@@ -310,7 +310,7 @@ class AppSettingsStore(private val file: File = settingsFile()) {
         val captionAlignments = setOf("left", "center", "right")
         val captionPresets = setOf("classic", "boxed", "cinema", "high-contrast", "custom")
         val sidebarShapes = listOf("rounded", "circle", "rectangular")
-        val refreshPlacements = listOf("top-right", "bottom-right", "sidebar")
+        val refreshPlacements = listOf("sidebar", "top-right", "bottom-right")
         private fun validColor(value: String, fallback: String): String =
             value.trim().uppercase().takeIf { it.matches(Regex("#[0-9A-F]{6}([0-9A-F]{2})?")) } ?: fallback
 
