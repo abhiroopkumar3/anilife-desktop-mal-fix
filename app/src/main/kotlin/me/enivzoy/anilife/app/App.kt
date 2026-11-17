@@ -377,10 +377,6 @@ fun AniLifeApp(
                 onSearch = { paletteOpen = true },
                 refresh = if (settings.refreshButtonPlacement == "sidebar") refresh else null,
                 refreshShown = showRefresh,
-                account = if (accountService != null && accountName != null) {
-                    me.enivzoy.anilife.app.ui.SidebarAccount(accountName, accountAvatar, accountOpen)
-                } else null,
-                onAccount = { accountOpen = true },
             )
         }
 
@@ -440,7 +436,7 @@ fun AniLifeApp(
                         notifier = releaseNotifier,
                         onOpenAnime = { navigateTo(Screen.Detail(it)) },
                     )
-                    Screen.Profile -> MyAnimeListScreen(repository, settings, ::updateSettings, refresh)
+                    Screen.Profile -> MyAnimeListScreen(repository, settings, ::updateSettings, refresh, onOpenAccount = { accountOpen = true })
                     Screen.Downloads -> DownloadsScreen(
                         repository = repository,
                         settings = settings,

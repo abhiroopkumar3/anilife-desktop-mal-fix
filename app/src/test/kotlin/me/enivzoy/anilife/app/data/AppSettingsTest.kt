@@ -1,4 +1,4 @@
-﻿package me.enivzoy.anilife.app.data
+package me.enivzoy.anilife.app.data
 
 import java.nio.file.Files
 import kotlin.test.Test
@@ -8,6 +8,11 @@ import xyz.orbitary.perigee.activity.ActivityType
 import xyz.orbitary.perigee.activity.StatusDisplayType
 
 class AppSettingsTest {
+    @Test
+    fun startupIntroIsOffByDefault() {
+        assertEquals(false, AppSettings().playIntro)
+    }
+
     @Test
     fun discordPresenceFormatsIdleMovieAndEpisodeActivities() {
         val startedAt = Instant.parse("2026-11-03T22:00:00Z")
@@ -64,7 +69,7 @@ class AppSettingsTest {
                     audio = "dub",
                     subtitleLanguage = "fr",
                     resumePlayback = false,
-                    playIntro = false,
+                    playIntro = true,
                     titleLanguage = "romaji",
                     discordPresenceEnabled = true,
                     discordApplicationId = "123456789012345678x",
@@ -93,7 +98,7 @@ class AppSettingsTest {
             assertEquals("dub", persisted.audio)
             assertEquals("fr", persisted.subtitleLanguage)
             assertEquals(false, persisted.resumePlayback)
-            assertEquals(false, persisted.playIntro)
+            assertEquals(true, persisted.playIntro)
             assertEquals("romaji", persisted.titleLanguage)
             assertEquals(true, persisted.discordPresenceEnabled)
             assertEquals("123456789012345678", persisted.discordApplicationId)

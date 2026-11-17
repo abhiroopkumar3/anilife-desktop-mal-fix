@@ -57,9 +57,6 @@ import me.enivzoy.anilife.app.Screen
 
 
 
-/** Who is signed in, for the sidebar's account button. */
-data class SidebarAccount(val name: String, val avatar: String?, val open: Boolean)
-
 @Composable
 fun AppSidebar(
     current: Screen,
@@ -70,9 +67,6 @@ fun AppSidebar(
     /** Set only when the refresh button is placed in this bar; [refreshShown] says if this screen has one. */
     refresh: RefreshHost? = null,
     refreshShown: Boolean = false,
-    /** The connected account, shown under the Profile icon; null when nobody is signed in. */
-    account: SidebarAccount? = null,
-    onAccount: () -> Unit = {},
 ) {
     BoxWithConstraints(
         modifier = modifier
@@ -138,10 +132,6 @@ fun AppSidebar(
             Spacer(Modifier.height(gap))
             NavIcon(Icons.Rounded.Person, "Profile", selected = current is Screen.Profile, size = iconSize) { onNavigate(Screen.Profile) }
             Spacer(Modifier.height(gap))
-            if (account != null) {
-                SidebarAccountButton(account.name, account.avatar, selected = account.open, compact = compact, onClick = onAccount)
-                Spacer(Modifier.height(gap))
-            }
             NavIcon(Icons.Rounded.Settings, "Settings", selected = current is Screen.Settings, size = iconSize) { onNavigate(Screen.Settings) }
             Spacer(Modifier.height(if (compact) 8.dp else 16.dp))
         }

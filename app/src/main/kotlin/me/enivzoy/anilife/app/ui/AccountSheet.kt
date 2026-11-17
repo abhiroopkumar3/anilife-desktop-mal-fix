@@ -90,7 +90,8 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 /*
- * The account sheet, as Android's AccountSheet.kt draws it behind the My List account pill: banner
+ * The account sheet, as Android's AccountSheet.kt draws it behind the My List account pill (here the
+ * account's row on the Accounts page opens it): banner
  * and avatar, three headline totals, Overview / Stats / Activity, and the account's own actions at
  * the foot. The streak and activity grid and the MyAnimeList list that used to sit on the Accounts
  * page live here now. "Link a TV" is left out: the PC has no TV to pair (see PARITY.md).
@@ -115,36 +116,26 @@ fun AccountAvatar(url: String?, size: androidx.compose.ui.unit.Dp, modifier: Mod
     }
 }
 
-/** The sidebar's account button: the picture and the first part of the name, under the Profile icon. */
+/** The signed-in account on its Accounts row: the picture, the name beside it, and a click opens the sheet. */
 @Composable
-fun SidebarAccountButton(name: String, avatar: String?, selected: Boolean, compact: Boolean, onClick: () -> Unit) {
+fun AccountIdentity(name: String, avatar: String?, subtitle: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
-    val background = when {
-        selected -> AniLifeColors.SidebarAccent
-        hovered -> AniLifeColors.SidebarAccent.copy(alpha = 0.65f)
-        else -> Color.Transparent
-    }
-    Column(
-        Modifier
-            .width(54.dp)
+    Row(
+        modifier
             .clip(RoundedCornerShape(10.dp))
-            .background(background)
+            .background(if (hovered) AniLifeColors.CardHover else Color.Transparent)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand)
-            .padding(vertical = if (compact) 3.dp else 5.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        AccountAvatar(avatar, if (compact) 22.dp else 26.dp)
-        Text(
-            name,
-            color = if (selected || hovered) AniLifeColors.Foreground else AniLifeColors.MutedForeground,
-            fontSize = 9.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp),
-        )
+        AccountAvatar(avatar, 40.dp)
+        Column {
+            Text(name, color = AniLifeColors.Foreground, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, color = AniLifeColors.MutedForeground, fontSize = 12.sp)
+        }
     }
 }
 

@@ -53,6 +53,7 @@ fun MyAnimeListScreen(
     settings: me.enivzoy.anilife.app.data.AppSettings,
     onSettingsChange: ((me.enivzoy.anilife.app.data.AppSettings) -> me.enivzoy.anilife.app.data.AppSettings) -> Unit,
     refresh: me.enivzoy.anilife.app.ui.RefreshHost,
+    onOpenAccount: () -> Unit = {},
 ) {
     var showTags by remember { mutableStateOf(false) }
     val user by MyAnimeListSync.user.collectAsState()
@@ -140,11 +141,13 @@ fun MyAnimeListScreen(
                 }
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Icon(Icons.Rounded.Person, contentDescription = null, tint = AniLifeColors.Primary)
-                    Column(Modifier.weight(1f)) {
-                        Text(user?.name.orEmpty(), color = AniLifeColors.Foreground, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                        Text("Connected to MyAnimeList", color = AniLifeColors.MutedForeground, fontSize = 12.sp)
-                    }
+                    me.enivzoy.anilife.app.ui.AccountIdentity(
+                        name = user?.name.orEmpty(),
+                        avatar = user?.picture,
+                        subtitle = "Connected to MyAnimeList",
+                        onClick = onOpenAccount,
+                        modifier = Modifier.weight(1f),
+                    )
                     OutlinedButton(onClick = { showTags = true }) { Text("Tags shown as lists") }
                     OutlinedButton(onClick = { scope.launch { refreshMalList() } }, enabled = !loading) {
                         Icon(Icons.Rounded.Refresh, contentDescription = null)
@@ -185,6 +188,6 @@ fun MyAnimeListScreen(
         }
 
         Spacer(Modifier.height(18.dp))
-        AniListAccountSettings(repository)
+        AniListAccountSettings(repository, onOpenAccount)
     }
 }

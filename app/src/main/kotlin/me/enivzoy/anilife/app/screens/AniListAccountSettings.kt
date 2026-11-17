@@ -49,7 +49,7 @@ import me.enivzoy.anilife.app.data.AniListSync
 import me.enivzoy.anilife.app.ui.AniLifeColors
 
 @Composable
-fun AniListAccountSettings(repository: AniListRepository) {
+fun AniListAccountSettings(repository: AniListRepository, onOpenAccount: () -> Unit = {}) {
     val user by AniListSync.user.collectAsState()
     val entries by AniListSync.entries.collectAsState()
     val syncStatus by AniListSync.status.collectAsState()
@@ -83,14 +83,25 @@ fun AniListAccountSettings(repository: AniListRepository) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Icon(Icons.Rounded.Person, contentDescription = null, tint = AniLifeColors.Primary)
-            Column(Modifier.weight(1f)) {
-                Text("AniList", color = AniLifeColors.Foreground, fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                Text(
-                    user?.name?.let { "Connected as $it" } ?: "Your AniList account is the synced library.",
-                    color = AniLifeColors.MutedForeground,
-                    fontSize = 12.sp,
+            val connected = user
+            if (connected != null) {
+                me.enivzoy.anilife.app.ui.AccountIdentity(
+                    name = connected.name,
+                    avatar = connected.avatar,
+                    subtitle = "Connected to AniList",
+                    onClick = onOpenAccount,
+                    modifier = Modifier.weight(1f),
                 )
+            } else {
+                Icon(Icons.Rounded.Person, contentDescription = null, tint = AniLifeColors.Primary)
+                Column(Modifier.weight(1f)) {
+                    Text("AniList", color = AniLifeColors.Foreground, fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    Text(
+                        "Your AniList account is the synced library.",
+                        color = AniLifeColors.MutedForeground,
+                        fontSize = 12.sp,
+                    )
+                }
             }
             if (user != null) {
                 OutlinedButton(

@@ -32,6 +32,7 @@ DefaultGroupName={#AppName}
 ; The wizard pages: install folder, Start Menu folder, and (from [Tasks]) the desktop shortcut.
 DisableDirPage=no
 DisableProgramGroupPage=no
+AllowNoIcons=yes
 DisableWelcomePage=no
 UninstallDisplayIcon={app}\{#AppExe}
 SetupIconFile=..\..\app\src\main\resources\anilife.ico
