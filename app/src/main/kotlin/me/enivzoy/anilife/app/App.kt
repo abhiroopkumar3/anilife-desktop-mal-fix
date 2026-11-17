@@ -366,6 +366,8 @@ fun AniLifeApp(
                 onNavigate = ::navigateTo,
                 onRandom = ::pickRandom,
                 onSearch = { paletteOpen = true },
+                refresh = if (settings.refreshButtonPlacement == "sidebar") refresh else null,
+                refreshShown = showRefresh,
             )
         }
 
@@ -508,8 +510,9 @@ fun AniLifeApp(
                 }
                 }
             }
-            if (showRefresh) {
-                RefreshButton(refresh, Modifier.align(Alignment.BottomEnd).padding(24.dp))
+            if (showRefresh && settings.refreshButtonPlacement != "sidebar") {
+                val corner = if (settings.refreshButtonPlacement == "top-right") Alignment.TopEnd else Alignment.BottomEnd
+                RefreshButton(refresh, Modifier.align(corner).padding(24.dp))
             }
         }
     }

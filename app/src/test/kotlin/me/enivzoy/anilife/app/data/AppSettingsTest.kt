@@ -133,6 +133,33 @@ class AppSettingsTest {
     }
 
     @Test
+    fun refreshButtonPlacementDefaultsToBottomRightAndPersistsEachChoice() {
+        val root = Files.createTempDirectory("AniLife-settings-refresh")
+        try {
+            val file = root.resolve("settings.properties").toFile()
+            assertEquals("bottom-right", AppSettingsStore(file).settings.value.refreshButtonPlacement)
+            for (placement in listOf("top-right", "sidebar", "bottom-right")) {
+                AppSettingsStore(file).update { it.copy(refreshButtonPlacement = placement) }
+                assertEquals(placement, AppSettingsStore(file).settings.value.refreshButtonPlacement)
+            }
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun anUnknownRefreshButtonPlacementFallsBackToBottomRight() {
+        val root = Files.createTempDirectory("AniLife-settings-refresh-bad")
+        try {
+            val file = root.resolve("settings.properties").toFile()
+            AppSettingsStore(file).update { it.copy(refreshButtonPlacement = "middle") }
+            assertEquals("bottom-right", AppSettingsStore(file).settings.value.refreshButtonPlacement)
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
     fun homeSectionOrderAndVisibilityPersistAndMissingSectionsAreRestored() {
         val root = Files.createTempDirectory("AniLife-settings-home")
         try {

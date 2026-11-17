@@ -256,6 +256,7 @@ private val settingSearchEntries = listOf(
     SettingSearchEntry("Discord Application ID", SettingsPage.Accounts, "discord developer application id"),
     SettingSearchEntry("Title display language", SettingsPage.Content, "anime name title romaji english native"),
     SettingSearchEntry("App font", SettingsPage.Appearance, "font typeface text sans serif mono"),
+    SettingSearchEntry("Refresh button", SettingsPage.Appearance, "refresh reload button position placement corner sidebar left bar"),
     SettingSearchEntry("Theme colors", SettingsPage.Appearance, "css theme colors palette editor custom look style"),
     SettingSearchEntry("Playback buffer", SettingsPage.Data, "stream buffering memory"),
     SettingSearchEntry("Back up to a file", SettingsPage.Data, "backup save export library settings json"),
@@ -1173,6 +1174,16 @@ private fun AppearanceSettings(settings: AppSettings, onSettingsChange: ((AppSet
                 OutlinedButton(onClick = { onSettingsChange { it.copy(appFontFile = "") } }) { Text("Clear") }
             }
         }
+    }
+    SettingsRow(
+        "Refresh button",
+        "Where the button that reloads the screen sits: a corner of the page, or in the left bar above Notifications.",
+    ) {
+        SettingsSegmented(
+            choices = listOf("top-right" to "Top right", "bottom-right" to "Bottom right", "sidebar" to "Left bar"),
+            selected = settings.refreshButtonPlacement,
+            onSelect = { value -> onSettingsChange { it.copy(refreshButtonPlacement = value) } },
+        )
     }
     SettingsSection("Theme colors") {
         ThemeEditor(

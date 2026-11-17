@@ -30,6 +30,14 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Icon
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.ui.draw.rotate
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -56,6 +64,9 @@ fun AppSidebar(
     onRandom: () -> Unit,
     onSearch: () -> Unit = { onNavigate(Screen.Browse) },
     modifier: Modifier = Modifier,
+    /** Set only when the refresh button is placed in this bar; [refreshShown] says if this screen has one. */
+    refresh: RefreshHost? = null,
+    refreshShown: Boolean = false,
 ) {
     BoxWithConstraints(
         modifier = modifier
@@ -102,6 +113,17 @@ fun AppSidebar(
 
             if (compact) Spacer(Modifier.height(6.dp)) else Spacer(Modifier.weight(1f))
 
+            if (refresh != null) {
+                // The slot is kept on screens without a button, so the icons below never jump.
+                if (refreshShown) {
+                    NavIcon(Icons.Rounded.Refresh, if (refresh.busy) "Refreshing" else "Refresh", selected = refresh.busy, size = iconSize, spin = refresh.busy) {
+                        refresh.request()
+                    }
+                } else {
+                    Spacer(Modifier.size(iconSize))
+                }
+                Spacer(Modifier.height(gap))
+            }
             NavIcon(Icons.Rounded.Notifications, "Notifications", selected = current is Screen.Notifications, size = iconSize) {
                 onNavigate(Screen.Notifications)
             }
@@ -120,6 +142,7 @@ private fun NavIcon(
     label: String,
     selected: Boolean,
     size: androidx.compose.ui.unit.Dp = 40.dp,
+    spin: Boolean = false,
     onClick: () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -144,8 +167,20 @@ private fun NavIcon(
             imageVector = icon,
             contentDescription = label,
             tint = tint,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(20.dp).let { if (spin) it.rotate(spinAngle()) else it },
         )
     }
 }
 
+/** One turn every 0.9 s, the same speed as the floating refresh button's. */
+@Composable
+private fun spinAngle(): Float {
+    val transition = rememberInfiniteTransition(label = "sidebar refresh spin")
+    val angle by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Restart),
+        label = "sidebar refresh angle",
+    )
+    return angle
+}
