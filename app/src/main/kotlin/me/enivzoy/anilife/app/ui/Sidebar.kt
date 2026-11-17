@@ -113,20 +113,14 @@ fun AppSidebar(
 
             if (compact) Spacer(Modifier.height(6.dp)) else Spacer(Modifier.weight(1f))
 
-            if (refresh != null) {
-                // Kept on screens that have nothing to refresh, greyed out and not clickable, so the slot
-                // never empties and the icons below never jump.
+            if (refresh != null && refreshShown) {
+                // Only on screens that can refresh; elsewhere the slot is simply not there.
                 NavIcon(
                     Icons.Rounded.Refresh,
-                    when {
-                        !refreshShown -> "Refresh (nothing to refresh here)"
-                        refresh.busy -> "Refreshing"
-                        else -> "Refresh"
-                    },
-                    selected = refreshShown && refresh.busy,
+                    if (refresh.busy) "Refreshing" else "Refresh",
+                    selected = refresh.busy,
                     size = iconSize,
-                    spin = refreshShown && refresh.busy,
-                    enabled = refreshShown,
+                    spin = refresh.busy,
                 ) {
                     refresh.request()
                 }
