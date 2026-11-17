@@ -76,6 +76,8 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import me.enivzoy.anilife.app.data.AccountLibrary
+import me.enivzoy.anilife.app.ui.RefreshHost
+import me.enivzoy.anilife.app.ui.RefreshOn
 import me.enivzoy.anilife.app.data.AniListConnection
 import me.enivzoy.anilife.app.data.AniListListEntry
 import me.enivzoy.anilife.app.data.AniListListStatus
@@ -169,7 +171,10 @@ fun LibraryScreen(
     hiddenPosterElements: String,
     onOpen: (Long) -> Unit,
     onBrowse: () -> Unit,
+    refresh: RefreshHost,
 ) {
+    // Pulls the signed-in account's lists again. The button is only shown with an account connected.
+    RefreshOn(refresh) { AccountLibrary.refresh() }
     val aniListUser by AniListSync.user.collectAsState()
     val malUser by MyAnimeListSync.user.collectAsState()
     val aniListEntries by AniListSync.entries.collectAsState()

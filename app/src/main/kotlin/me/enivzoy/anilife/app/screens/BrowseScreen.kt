@@ -57,6 +57,8 @@ import me.enivzoy.anilife.app.ui.LoadState
 import me.enivzoy.anilife.app.ui.PageScrollbar
 import me.enivzoy.anilife.app.ui.PosterSkeleton
 import me.enivzoy.anilife.app.ui.loadState
+import me.enivzoy.anilife.app.ui.RefreshHost
+import me.enivzoy.anilife.app.ui.RefreshOn
 import me.enivzoy.anilife.core.model.GENRES
 import me.enivzoy.anilife.core.model.SearchPage
 import kotlinx.coroutines.delay
@@ -69,6 +71,7 @@ import kotlinx.coroutines.delay
 fun BrowseScreen(
     repository: AniListRepository,
     onOpen: (Long) -> Unit,
+    refresh: RefreshHost,
 ) {
     var query by remember { mutableStateOf("") }
     var genre by remember { mutableStateOf<String?>(null) }
@@ -78,6 +81,11 @@ fun BrowseScreen(
     LaunchedEffect(query, genre, reload) {
         if (query.isNotBlank()) delay(350)
         state = LoadState.Loading
+        state = loadState { repository.search(query = query.trim(), genre = genre) }
+    }
+
+    // Same search again, typed text and filters kept, results left on screen while it loads.
+    RefreshOn(refresh) {
         state = loadState { repository.search(query = query.trim(), genre = genre) }
     }
 

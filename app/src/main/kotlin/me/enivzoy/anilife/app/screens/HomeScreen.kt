@@ -71,6 +71,8 @@ import me.enivzoy.anilife.app.ui.Hero
 import me.enivzoy.anilife.app.ui.LoadState
 import me.enivzoy.anilife.app.ui.PageScrollbar
 import me.enivzoy.anilife.app.ui.PosterSkeleton
+import me.enivzoy.anilife.app.ui.RefreshHost
+import me.enivzoy.anilife.app.ui.RefreshOn
 import me.enivzoy.anilife.app.ui.Shimmer
 import me.enivzoy.anilife.app.ui.loadState
 import me.enivzoy.anilife.core.model.AnimeCard
@@ -83,6 +85,7 @@ fun HomeScreen(
     settings: AppSettings,
     onSettingsChange: ((AppSettings) -> AppSettings) -> Unit,
     onOpen: (Long) -> Unit,
+    refresh: RefreshHost,
     onContentReady: () -> Unit = {},
 ) {
     var attempt by remember { mutableStateOf(0) }
@@ -98,6 +101,13 @@ fun HomeScreen(
             is LoadState.Failed -> if (cached == null || attempt > 0) state = result
             LoadState.Loading -> Unit
         }
+    }
+
+    // The floating refresh button: live rows, with the page left up while they load. A failed reload
+    // shows the error panel, as Android's pull-to-refresh does.
+    RefreshOn(refresh) {
+        val result = loadState { repository.home(force = true) }
+        if (result !is LoadState.Loading) state = result
     }
 
     LaunchedEffect(state) {

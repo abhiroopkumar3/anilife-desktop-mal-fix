@@ -75,6 +75,8 @@ import me.enivzoy.anilife.app.screens.MyAnimeListScreen
 import me.enivzoy.anilife.app.screens.NotificationsScreen
 import me.enivzoy.anilife.app.data.MyAnimeListSync
 import me.enivzoy.anilife.app.data.AniListSync
+import me.enivzoy.anilife.app.ui.RefreshButton
+import me.enivzoy.anilife.app.ui.RefreshHost
 import me.enivzoy.anilife.app.data.Updater
 import me.enivzoy.anilife.app.data.MpvBootstrap
 import me.enivzoy.anilife.app.data.NoticeStoreInstance
@@ -118,6 +120,17 @@ fun AniLifeApp(
     val backStack = remember { mutableStateListOf<Screen>() }
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
     var homeLoaded by remember { mutableStateOf(false) }
+    val refresh = remember { RefreshHost() }
+    val aniListUser by AniListSync.user.collectAsState()
+    val malUser by MyAnimeListSync.user.collectAsState()
+    // Where the floating refresh button shows: the screens that load something to reload. Library only
+    // with an account connected, since a signed-out list has nothing to pull. Never over the player,
+    // Watch or Settings, so it cannot cover their controls.
+    val showRefresh = when (screen) {
+        Screen.Home, Screen.Browse, Screen.Schedule, is Screen.Detail -> true
+        Screen.Library -> aniListUser != null || malUser != null
+        else -> false
+    }
     var playerFullscreen by remember { mutableStateOf(false) }
     val consumedWatchAutoPlays = remember { mutableStateListOf<Long>() }
     val scope = rememberCoroutineScope()
@@ -383,15 +396,17 @@ fun AniLifeApp(
                         settings = settings,
                         onSettingsChange = ::updateSettings,
                         onOpen = { navigateTo(Screen.Detail(it)) },
+                        refresh = refresh,
                         onContentReady = { homeLoaded = true },
                     )
-                    Screen.Browse -> BrowseScreen(repository = repository, onOpen = { navigateTo(Screen.Detail(it)) })
-                    Screen.Schedule -> ScheduleScreen(repository = repository, onOpen = { navigateTo(Screen.Detail(it)) })
+                    Screen.Browse -> BrowseScreen(repository = repository, onOpen = { navigateTo(Screen.Detail(it)) }, refresh = refresh)
+                    Screen.Schedule -> ScheduleScreen(repository = repository, onOpen = { navigateTo(Screen.Detail(it)) }, refresh = refresh)
                     Screen.Library -> LibraryScreen(
                         repository = repository,
                         hiddenPosterElements = settings.hiddenPosterElements,
                         onOpen = { navigateTo(Screen.Detail(it)) },
                         onBrowse = { navigateTo(Screen.Browse) },
+                        refresh = refresh,
                     )
                     Screen.Settings -> SettingsScreen(
                         settings = settings,
@@ -426,6 +441,7 @@ fun AniLifeApp(
                         onBack = ::goBack,
                         onOpen = { navigateTo(Screen.Detail(it)) },
                         onWatch = { detail, episode -> navigateTo(Screen.Watch(detail, episode)) },
+                        refresh = refresh,
                     )
                     is Screen.Watch -> AnimeWatchScreen(
                         detail = target.detail,
@@ -491,6 +507,9 @@ fun AniLifeApp(
                     )
                 }
                 }
+            }
+            if (showRefresh) {
+                RefreshButton(refresh, Modifier.align(Alignment.BottomEnd).padding(24.dp))
             }
         }
     }

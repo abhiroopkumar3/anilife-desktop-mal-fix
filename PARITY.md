@@ -50,6 +50,7 @@ Status: **Done** (ported and tested), **Planned**, **Not ported** (no Windows eq
 | `planRewatchMove`, `rewatchArguments`, `aniListScoreRaw`, `malWriteMismatch`, `savedRowSurvivesMoveTo` | `data/ListEditRules.kt` | Done (rule) | 7 tests in `ListEditRulesTest` |
 | `updateAnimeListStatus`, `updateAnimeListScore`, `setAnimeListProgress`, `deleteAnimeListEntry`, `setAnimeWatched` | `data/ListEdits.kt`, `AniListAccountApi`, `MyAnimeListSync.writeEntry` | Done | Same GraphQL and MAL writes, with the same confirm-after-write checks and rewatch handling |
 | `PosterElement` settings | `data/LibraryRules.kt`, Settings screen | Done | Android keeps the switched-off ones, so does Windows. No DUB (needs the dub index) or 18+ switch |
+| Pull-to-refresh (`PullRefreshContainer`) on Home, Browse, Schedule, Library, anime detail | `ui/Refresh.kt` `RefreshHost`, `RefreshOn`, `RefreshButton`; floating button bottom right, wired in `App.kt` | Done (needs a visual check on a PC) | Windows has no pull gesture, so one button reloads whatever screen is showing, and nothing else. Home: live rows, page left up while loading. Browse: same search again, text and filters kept. Schedule: reloads and stays on the selected day. Library: re-pulls the account's lists (`AccountLibrary.refresh`), shown only with an AniList or MAL account connected. Detail: reloads that anime. Spinner held 550 ms, as Android's. A failed reload shows the error panel, as on Android. Not on Downloads, Providers, Random, Notifications, Profile, Watch, Player or Settings. 4 tests of Windows' own (`RefreshHostTest`) |
 
 ## Menu differences
 
@@ -76,3 +77,5 @@ Status: **Done** (ported and tested), **Planned**, **Not ported** (no Windows eq
 ## Known differences outside the Library page
 
 - Android keeps a resume point per part-watched episode (`resumePoints`) and lets the viewer mark episodes watched by hand. Windows keeps one resume point per title, and its Continue row follows the episode last played. Neither is on the Library page; both belong with the Detail and Player pages.
+
+- Android's Home refresh also re-reads the schedule that decides which Continue Watching rows have a new episode out. Windows has no such schedule check on that row, so its refresh reloads the home rows only.

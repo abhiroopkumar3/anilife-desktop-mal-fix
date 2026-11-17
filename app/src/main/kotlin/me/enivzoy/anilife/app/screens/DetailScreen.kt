@@ -74,6 +74,8 @@ import me.enivzoy.anilife.app.ui.RemoteImage
 import me.enivzoy.anilife.app.ui.Shimmer
 import me.enivzoy.anilife.app.ui.cardMeta
 import me.enivzoy.anilife.app.ui.loadState
+import me.enivzoy.anilife.app.ui.RefreshHost
+import me.enivzoy.anilife.app.ui.RefreshOn
 import me.enivzoy.anilife.app.ui.parseAnimeColor
 import me.enivzoy.anilife.core.model.AnimeDetail
 import me.enivzoy.anilife.core.model.countdown
@@ -96,6 +98,7 @@ fun DetailScreen(
     onBack: () -> Unit,
     onOpen: (Long) -> Unit,
     onWatch: (AnimeDetail, Double?) -> Unit,
+    refresh: RefreshHost,
 ) {
     var attempt by remember(id) { mutableIntStateOf(0) }
     var state by remember(id) { mutableStateOf<LoadState<AnimeDetail>>(LoadState.Loading) }
@@ -110,6 +113,12 @@ fun DetailScreen(
     LaunchedEffect(id, attempt) {
         state = LoadState.Loading
         state = loadState { repository.detail(id) }
+    }
+
+    // This anime's record again, the page left up while it loads.
+    RefreshOn(refresh) {
+        val result = loadState { repository.detail(id) }
+        if (result !is LoadState.Loading) state = result
     }
 
     Box(Modifier.fillMaxSize()) {
