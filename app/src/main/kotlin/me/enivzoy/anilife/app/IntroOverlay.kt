@@ -42,11 +42,25 @@ fun IntroOverlay(homeReady: Boolean, onFinished: () -> Unit) {
     val currentHomeReady by rememberUpdatedState(homeReady)
     var playerVisible by remember { mutableStateOf(true) }
     var blackCover by remember { mutableStateOf(true) }
+    var playbackStarted by remember { mutableStateOf(false) }
     val coverAlpha by animateFloatAsState(
         targetValue = if (blackCover) 1f else 0f,
         animationSpec = tween(500),
         label = "intro-black-fade",
     )
+
+    // Everything before the first frame (the canvas appearing, mpv starting, the file loading) has no
+    // time limit of its own, and the overlay is solid black until then. If the video has not begun
+    // within a few seconds, which can happen on the very first launch after an install while the
+    // system is still scanning and warming up, give up on the intro and show the app instead of
+    // leaving a black window up until the viewer closes it.
+    LaunchedEffect(Unit) {
+        delay(INTRO_START_WATCHDOG_MILLIS)
+        if (!playbackStarted) {
+            System.err.println("AniLife intro did not start within ${INTRO_START_WATCHDOG_MILLIS / 1000}s; skipping it.")
+            onFinished()
+        }
+    }
 
     LaunchedEffect(canvas) {
         var player: Mpv? = null
@@ -81,7 +95,7 @@ fun IntroOverlay(homeReady: Boolean, onFinished: () -> Unit) {
             val ended = CompletableDeferred<Boolean>()
             activePlayer.startEvents { event ->
                 when (event) {
-                    Event.FileLoaded -> EventQueue.invokeLater { blackCover = false }
+                    Event.FileLoaded -> EventQueue.invokeLater { playbackStarted = true; blackCover = false }
                     is Event.EndFile -> ended.complete(event.reason == EndReason.EOF)
                     is Event.Log -> if (event.level == "fatal") ended.complete(false)
                     else -> Unit
@@ -134,6 +148,8 @@ fun IntroOverlay(homeReady: Boolean, onFinished: () -> Unit) {
     }
 }
 
+/** How long the intro may take to put its first frame up before it is skipped. */
+private const val INTRO_START_WATCHDOG_MILLIS = 8_000L
 private const val INTRO_TIMEOUT_MILLIS = 20_000L
 private const val HOME_READY_TIMEOUT_MILLIS = 15_000L
 
