@@ -22,7 +22,7 @@
 AppId={{C2AB5B89-6FF4-4928-9217-B0DB70EAA3BE}
 AppName={#AppName}
 AppVersion={#Version}
-AppVerName={#AppName} {#Version}
+AppVerName={#AppName}
 AppPublisher={#AppName}
 AppPublisherURL={#RepoUrl}
 AppSupportURL={#RepoUrl}
@@ -134,7 +134,7 @@ begin
     Box := TCheckBox.Create(Form);
     Box.Parent := Form;
     Box.SetBounds(ScaleX(16), ScaleY(60), ScaleX(388), ScaleY(36));
-    Box.Caption := 'Also delete all settings and data (' + ExpandConstant('{localappdata}\AniLife') + ')';
+    Box.Caption := 'Also delete all settings and data (%LOCALAPPDATA%\AniLife)';
     Box.Checked := True;
 
     Ok := TButton.Create(Form);
