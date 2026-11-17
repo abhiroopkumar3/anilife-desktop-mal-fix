@@ -84,7 +84,7 @@ AniLife needs libmpv. If it cannot find one, it downloads the latest 64-bit LGPL
 
 ## MyAnimeList sign-in
 
-Sign-in needs a MAL API client ID. Copy `.env.example` to `.env` in the directory you launch the app from and set `MAL_CLIENT_ID`. The `MAL_CLIENT_ID` environment variable works too. Without it, the rest of the app is unaffected and the sign-in page says the ID is missing.
+Sign-in needs your own API client IDs. Open the Profile page and press Connect: if the ID is empty, a pop-up asks for it (MyAnimeList client ID, or AniList client ID and an optional secret), hidden as you paste, with Save, Connect and Cancel. The pencil on each account row edits the values later. They live in `.env` in `%LOCALAPPDATA%\AniLife`, which the app creates blank on first start, and saving one service never touches the other's. A `.env` beside the program, or the `MAL_CLIENT_ID`, `ANILIST_CLIENT_ID` and `ANILIST_CLIENT_SECRET` environment variables, still work. Without an ID, the rest of the app is unaffected.
 
 ## Build from source
 

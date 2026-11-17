@@ -81,6 +81,28 @@ fun MyAnimeListScreen(
         if (user != null) refreshMalList()
     }
 
+    var showApiDialog by remember { mutableStateOf(false) }
+
+    // A sign-in that does not complete (browser closed, access refused) just leaves the Connect button
+    // showing again, with no message, so it can be tried from the start.
+    fun connectMal() {
+        MyAnimeListSync.configure()
+        scope.launch {
+            loading = true
+            error = null
+            try {
+                AccountAdoption.connectMyAnimeList()
+                refreshMalList()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                System.err.println("MyAnimeList sign-in did not complete: ${failure.message}")
+            } finally {
+                loading = false
+            }
+        }
+    }
+
     // The profile page's pull-to-refresh on Android reads the account again: the lists, then the
     // activity history. A failed read leaves what is showing, and each account's own status line or
     // error text says why.
@@ -102,33 +124,23 @@ fun MyAnimeListScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (user == null) {
-                Text("Connect your MyAnimeList account", color = AniLifeColors.Foreground, fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Connect your MyAnimeList account", color = AniLifeColors.Foreground, fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    me.enivzoy.anilife.app.ui.EditApiValuesButton(me.enivzoy.anilife.app.ui.ApiService.MAL) { showApiDialog = true }
+                }
                 Text(
-                    if (configured) "MyAnimeList is available for account sync."
-                    else "MyAnimeList client configuration is unavailable.",
+                    "Sign in to sync your list and watched progress.",
                     color = AniLifeColors.MutedForeground,
                     fontSize = 12.sp,
                     lineHeight = 18.sp,
                 )
                 Button(
                     onClick = {
-                        MyAnimeListSync.configure()
-                        scope.launch {
-                            loading = true
-                            error = null
-                            try {
-                                AccountAdoption.connectMyAnimeList()
-                                refreshMalList()
-                            } catch (cancelled: CancellationException) {
-                                throw cancelled
-                            } catch (failure: Throwable) {
-                                error = failure.message ?: "MyAnimeList sign-in failed."
-                            } finally {
-                                loading = false
-                            }
-                        }
+                        // No client ID yet: ask for it first, and sign in once it is saved.
+                        if (me.enivzoy.anilife.app.data.ApiCredentials.shared.isSet(me.enivzoy.anilife.app.data.ApiKey.MAL_CLIENT_ID)) connectMal()
+                        else showApiDialog = true
                     },
-                    enabled = configured && !loading,
+                    enabled = !loading,
                 ) {
                     if (loading) CircularProgressIndicator(Modifier.width(18.dp), strokeWidth = 2.dp)
                     else Icon(Icons.Rounded.Person, contentDescription = null)
@@ -154,10 +166,21 @@ fun MyAnimeListScreen(
                             entries = emptyList()
                         }
                     }) { Text("Disconnect") }
+                    me.enivzoy.anilife.app.ui.EditApiValuesButton(me.enivzoy.anilife.app.ui.ApiService.MAL) { showApiDialog = true }
                 }
                 Text("Completed episodes sync to your MAL list after playback finishes.", color = AniLifeColors.MutedForeground, fontSize = 12.sp)
             }
             error?.let { Text(it, color = AniLifeColors.Destructive, fontSize = 12.sp) }
+        }
+
+        if (showApiDialog) {
+            me.enivzoy.anilife.app.ui.ApiCredentialsDialog(
+                service = me.enivzoy.anilife.app.ui.ApiService.MAL,
+                canConnect = user == null,
+                onSaved = { MyAnimeListSync.configure() },
+                onConnect = { showApiDialog = false; connectMal() },
+                onDismiss = { showApiDialog = false },
+            )
         }
 
         if (showTags) {

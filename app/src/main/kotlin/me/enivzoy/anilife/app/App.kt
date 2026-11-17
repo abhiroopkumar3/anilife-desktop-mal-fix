@@ -206,6 +206,8 @@ fun AniLifeApp(
     }
 
     LaunchedEffect(Unit) {
+        // A blank .env with the three keys, made once so there is a file to fill in. Never overwrites one.
+        me.enivzoy.anilife.app.data.ApiCredentials.shared.ensureFile()
         AniListSync.restore()
         MyAnimeListSync.configure()
         MyAnimeListSync.restore()

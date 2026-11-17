@@ -58,6 +58,7 @@ fun AniListAccountSettings(repository: AniListRepository) {
     var showTokenField by remember { mutableStateOf(false) }
     var tokenText by remember { mutableStateOf("") }
     var actionError by remember { mutableStateOf<String?>(null) }
+    var showApiDialog by remember { mutableStateOf(false) }
     var showImportReview by remember { mutableStateOf(false) }
     var importingId by remember { mutableStateOf<Long?>(null) }
 
@@ -66,6 +67,15 @@ fun AniListAccountSettings(repository: AniListRepository) {
     val remoteIds = remember(entries) { entries.mapTo(mutableSetOf()) { it.anime.id } }
     val localOnly = remember(localEntries, remoteIds) { localEntries.filterNot { it.id in remoteIds } }
     val connecting = syncStatus.connection == AniListConnection.CONNECTING || syncStatus.syncing
+
+    fun startAniListSignIn() {
+        try {
+            AniListSync.beginAuth()
+            showTokenField = true
+        } catch (failure: Throwable) {
+            actionError = failure.message ?: "Couldn't open AniList sign-in."
+        }
+    }
 
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
@@ -116,6 +126,7 @@ fun AniListAccountSettings(repository: AniListRepository) {
                     },
                 ) { Text("Disconnect") }
             }
+            me.enivzoy.anilife.app.ui.EditApiValuesButton(me.enivzoy.anilife.app.ui.ApiService.ANILIST) { showApiDialog = true }
         }
 
         if (user != null) {
@@ -166,7 +177,7 @@ fun AniListAccountSettings(repository: AniListRepository) {
             }
         } else {
             Text(
-                "Use the official implicit sign-in flow. AniLife never asks for an authorization code or client secret.",
+                "Use the official implicit sign-in flow. It needs only your client ID; the secret, if you save one, is kept but not used by this sign-in.",
                 color = AniLifeColors.MutedForeground,
                 fontSize = 12.sp,
                 lineHeight = 18.sp,
@@ -175,11 +186,11 @@ fun AniListAccountSettings(repository: AniListRepository) {
                 Button(
                     onClick = {
                         actionError = null
-                        try {
-                            AniListSync.beginAuth()
-                            showTokenField = true
-                        } catch (failure: Throwable) {
-                            actionError = failure.message ?: "Couldn't open AniList sign-in."
+                        // No client ID yet: ask for it first, and open the sign-in once it is saved.
+                        if (me.enivzoy.anilife.app.data.AniListConfig.clientId().isBlank()) {
+                            showApiDialog = true
+                        } else {
+                            startAniListSignIn()
                         }
                     },
                     enabled = !connecting,
@@ -220,7 +231,10 @@ fun AniListAccountSettings(repository: AniListRepository) {
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (failure: Throwable) {
-                                actionError = failure.message ?: "AniList sign-in failed."
+                                // A sign-in that does not complete just starts over from the Connect button.
+                                System.err.println("AniList sign-in did not complete: ${failure.message}")
+                                tokenText = ""
+                                showTokenField = false
                             }
                         }
                     },
@@ -232,6 +246,16 @@ fun AniListAccountSettings(repository: AniListRepository) {
             }
         }
         actionError?.let { Text(it, color = AniLifeColors.Destructive, fontSize = 12.sp) }
+    }
+
+    if (showApiDialog) {
+        me.enivzoy.anilife.app.ui.ApiCredentialsDialog(
+            service = me.enivzoy.anilife.app.ui.ApiService.ANILIST,
+            canConnect = user == null,
+            onSaved = {},
+            onConnect = { showApiDialog = false; startAniListSignIn() },
+            onDismiss = { showApiDialog = false },
+        )
     }
 
     if (showImportReview) {

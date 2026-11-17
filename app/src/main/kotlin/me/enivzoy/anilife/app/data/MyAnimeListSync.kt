@@ -57,19 +57,12 @@ object MyAnimeListSync {
     val user = mutableUser.asStateFlow()
     private val mutableConfigured = MutableStateFlow(false)
     val configured = mutableConfigured.asStateFlow()
-    @Volatile private var clientId: String = DEFAULT_CLIENT_ID
-    private const val DEFAULT_CLIENT_ID = "0e98545d5b71fdaad927ef2e8e388396"
+    @Volatile private var clientId: String = ""
     @Volatile private var tokens: Tokens? = readTokens()
 
+    /** Reads the client ID again from the environment or the `.env` file. Empty until the viewer sets one. */
     fun configure() {
-        val fromEnvironment = System.getenv("MAL_CLIENT_ID")?.trim().orEmpty()
-        val fromFile = runCatching {
-            val envFile = File(System.getProperty("user.dir"), ".env")
-            envFile.readLines().firstOrNull { it.trimStart().startsWith("MAL_CLIENT_ID=") }
-                ?.substringAfter('=')?.trim()?.trim('"', '\'')
-        }.getOrNull().orEmpty()
-        val resolved = fromEnvironment.ifBlank { fromFile }.ifBlank { DEFAULT_CLIENT_ID }
-        clientId = resolved.take(128)
+        clientId = ApiCredentials.shared.read(ApiKey.MAL_CLIENT_ID)
         mutableConfigured.value = clientId.isNotBlank()
     }
 
@@ -85,7 +78,7 @@ object MyAnimeListSync {
     }
 
     suspend fun connect() {
-        require(clientId.isNotBlank()) { "Enter your MyAnimeList client ID in Settings first." }
+        require(clientId.isNotBlank()) { "Enter your MyAnimeList client ID first." }
         val state = randomUrlToken()
         val verifier = randomUrlToken()
         // MyAnimeList only supports the "plain" PKCE method, so the challenge is the verifier itself.
