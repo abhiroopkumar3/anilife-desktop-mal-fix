@@ -18,6 +18,12 @@ import java.util.Properties
  */
 object AccountLibrary {
     private const val MAX_RETRIES_PER_RUN = 40
+
+    /** Android's `REMOTE_REFRESH_INTERVAL_MS`: opening Home or launching pulls at most this often. */
+    const val PULL_INTERVAL_MS = 30_000L
+
+    /** When the account was last read successfully; 0 until it has been, so a failed read stays due. */
+    @Volatile private var lastPullAt = 0L
     private val mutex = Mutex()
     private val snapshots = StatusSnapshotStore()
     private val idMap = MalIdMap()
@@ -77,11 +83,21 @@ object AccountLibrary {
         else -> null
     }
 
+    /**
+     * The pull Android runs at launch and whenever Home opens (`refreshRemoteLibrary()` without
+     * `force`): skipped when one ran in the last [PULL_INTERVAL_MS] or one is running now.
+     */
+    suspend fun refreshIfDue() {
+        if (!accountPullDue(System.currentTimeMillis(), lastPullAt, mutex.isLocked)) return
+        refresh()
+    }
+
     /** Pull the account into this PC. A failed read changes nothing. */
     suspend fun refresh() = mutex.withLock {
         val repo = repository ?: return@withLock
         val key = accountKey() ?: return@withLock
         val remote = runCatching { remoteEntries() }.getOrNull() ?: return@withLock
+        lastPullAt = System.currentTimeMillis()
         val syncSaved = syncSavedEnabled()
         when (activeService()) {
             ListService.ANILIST -> lastAniListListNames?.let {
@@ -158,6 +174,10 @@ object AccountLibrary {
         refresh()
     }
 }
+
+/** Whether a throttled pull should run: not while one is running, and not within [AccountLibrary.PULL_INTERVAL_MS] of the last. */
+fun accountPullDue(nowMillis: Long, lastPullMillis: Long, running: Boolean): Boolean =
+    !running && nowMillis - lastPullMillis >= AccountLibrary.PULL_INTERVAL_MS
 
 /** The statuses last seen on each account, so the next refresh can tell a move from an absence. */
 class StatusSnapshotStore(private val file: File = File(directory(), "account-snapshot.properties")) {

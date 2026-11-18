@@ -222,6 +222,7 @@ fun AniLifeApp(
         repository.onBulkSaved = { pushScope.launch { AccountLibrary.pushSaved() } }
         AccountAdoption.settleAfterRestore()
         AccountLibrary.retryPending()
+        AccountLibrary.refreshIfDue()
         CustomListStoreInstance.pushPending()
         MalProgressSync.drain()
         DiscordOAuth.restore()

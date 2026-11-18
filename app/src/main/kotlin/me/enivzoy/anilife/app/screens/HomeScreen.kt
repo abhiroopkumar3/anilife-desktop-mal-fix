@@ -60,9 +60,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.distinctUntilChanged
 import me.enivzoy.anilife.app.data.UpcomingAiring
+import me.enivzoy.anilife.app.data.UpcomingAiringMemory
+import me.enivzoy.anilife.app.data.AccountLibrary
 import me.enivzoy.anilife.app.data.hideFromContinueUntilAired
 import me.enivzoy.anilife.app.data.returnsToContinueAt
 import me.enivzoy.anilife.app.data.AniListRepository
@@ -119,7 +122,9 @@ fun HomeScreen(
     // request that fails or runs past 15 seconds does not tear the page down for an error: Android
     // serves its offline catalogue instead, and the rows already on screen are this app's equivalent.
     // Only a screen with nothing to show reports the failure.
-    RefreshOn(refresh) {
+    RefreshOn(refresh) { kotlinx.coroutines.coroutineScope {
+        // The account is pulled too, whatever the throttle says: the button is a request for live data.
+        launch { AccountLibrary.refresh() }
         val result = withTimeoutOrNull(HOME_LOAD_TIMEOUT_MS) { loadState { repository.home(force = true) } }
             ?: LoadState.Failed("Home request timed out. Check the connection and try again.")
         when {
@@ -130,7 +135,11 @@ fun HomeScreen(
         // is the "Because you watched" row, which Android recomputes with every forced load.
         scheduleReads++
         personalReads++
-    }
+    } }
+
+    // Continue Watching is on this screen, so coming back to it is when the account is consulted, as on
+    // Android. The 30 second throttle absorbs the launch pull and quick tab-switching.
+    LaunchedEffect(Unit) { AccountLibrary.refreshIfDue() }
 
     LaunchedEffect(state) {
         if (state is LoadState.Ready || state is LoadState.Failed) onContentReady()
@@ -158,7 +167,7 @@ private fun HomeContent(
     val storedContinue by ContinueStoreInstance.entries.collectAsState()
     val hideUnaired = settings.hideUnairedFromContinue
     // "Only episodes you can watch": a title is hidden, never removed, until its next episode is out.
-    var upcoming by remember { mutableStateOf<UpcomingAiring>(emptyMap()) }
+    var upcoming by remember { mutableStateOf<UpcomingAiring>(UpcomingAiringMemory.last) }
     var nowSec by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
     var dayReads by remember { mutableIntStateOf(0) }
     val continueIds = remember(storedContinue) { storedContinue.map { it.anime.id }.distinct().sorted() }
@@ -170,6 +179,7 @@ private fun HomeContent(
             return@LaunchedEffect
         }
         runCatching { repository.upcomingAirings(continueIds) }.onSuccess {
+            UpcomingAiringMemory.last = it
             upcoming = it
             nowSec = System.currentTimeMillis() / 1000
         }

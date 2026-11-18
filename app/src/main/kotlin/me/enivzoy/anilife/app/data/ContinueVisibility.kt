@@ -13,6 +13,15 @@ import me.enivzoy.anilife.core.model.AiringTime
  */
 typealias UpcomingAiring = Map<Long, Map<Int, Long>>
 
+/**
+ * The last schedule read, kept for the life of the app. Home is built again every time the viewer
+ * comes back to it; starting from the last read instead of an empty one is what stops a caught-up
+ * row showing for the moment the new read takes. Android's view model holds it the same way.
+ */
+object UpcomingAiringMemory {
+    @Volatile var last: UpcomingAiring = emptyMap()
+}
+
 /** How many days the [UpcomingAiring] window covers, starting yesterday. */
 const val UPCOMING_AIRING_DAYS = 16
 

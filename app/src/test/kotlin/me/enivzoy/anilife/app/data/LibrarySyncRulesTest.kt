@@ -261,3 +261,17 @@ class EpisodeWatchedTest {
         assertEquals(setOf(1.0, 2.0, 3.0), seededLegacyWatched(3.5))
     }
 }
+
+class AccountPullThrottleTest {
+    @Test
+    fun `a pull never read is due`() = assertTrue(accountPullDue(100_000, 0, running = false))
+
+    @Test
+    fun `a pull within thirty seconds of the last is skipped`() = assertFalse(accountPullDue(129_999, 100_000, running = false))
+
+    @Test
+    fun `a pull thirty seconds after the last is due`() = assertTrue(accountPullDue(130_000, 100_000, running = false))
+
+    @Test
+    fun `a pull is skipped while another is running`() = assertFalse(accountPullDue(500_000, 0, running = true))
+}
