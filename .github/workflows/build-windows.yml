@@ -19,8 +19,8 @@ name: Build Windows installers
 #
 # File boxes on "Run workflow": one tick box per download (.x64.exe, .x64.msi, .x64-per-user.msi,
 # .x64-portable.zip), all ticked by default. GitHub has no "select all" box, so untick what you do not
-# want. Pushes and syncs always build everything. Publishing needs the .exe, so a run with "Publish"
-# ticked and the .exe unticked stops straight away.
+# want. Pushes and syncs always build everything. Publishing needs all four files, so a run with
+# "Publish" ticked and any file unticked stops straight away. "Publish" is unticked by default.
 #
 # Version boxes on "Run workflow": Base and Revision are optional and count only when "Publish" is
 # ticked. Left empty, the version comes from fork-version.properties. Typed, they are checked
@@ -35,23 +35,23 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: "Publish a release from this build (untick to only upload the installers)"
+        description: "Publish a release from this build. Needs all four files below ticked. Unticked by default, so a test build never publishes by accident"
         type: boolean
-        default: true
+        default: false
       exe:
-        description: "Build the setup wizard (.x64.exe). Needed when Publish is ticked, because the updater uses it"
+        description: "Build the setup wizard (.x64.exe). Must be ticked when Publish is ticked"
         type: boolean
         default: true
       msi:
-        description: "Build the system-wide installer (.x64.msi)"
+        description: "Build the system-wide installer (.x64.msi). Must be ticked when Publish is ticked"
         type: boolean
         default: true
       per_user_msi:
-        description: "Build the per-user installer (.x64-per-user.msi)"
+        description: "Build the per-user installer (.x64-per-user.msi). Must be ticked when Publish is ticked"
         type: boolean
         default: true
       portable_zip:
-        description: "Build the portable .zip (.x64-portable.zip)"
+        description: "Build the portable .zip (.x64-portable.zip). Must be ticked when Publish is ticked"
         type: boolean
         default: true
       base:
@@ -187,9 +187,9 @@ jobs:
 
       # Every build step below runs unless its box was unticked (an empty input, as on a push, counts as ticked).
       - name: Check the chosen files
-        if: inputs.publish != false && inputs.exe == false
+        if: inputs.publish == true && (inputs.exe == false || inputs.msi == false || inputs.per_user_msi == false || inputs.portable_zip == false)
         run: |
-          Write-Error "Publishing needs the .x64.exe (the updater uses it). Tick it, or untick Publish."
+          Write-Error "Publishing needs all four files (.x64.exe, .x64.msi, .x64-per-user.msi, .x64-portable.zip). Tick them all, or untick Publish."
           exit 1
 
       - name: Make the output folder

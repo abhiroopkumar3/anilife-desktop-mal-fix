@@ -4,7 +4,8 @@ name: Publish release from a build run
 # GitHub release tagged v<version> (the version the build used).
 # If the release already exists it is left alone, unless "replace" is ticked (repairing a broken
 # upload). The app's updater reads this repo's
-# latest release, so the file ending in .x64.exe must be present. A copy named .base.exe is added
+# latest release, so the file ending in .x64.exe must be present. All four downloads (.x64.exe,
+# .x64.msi, .x64-per-user.msi, .x64-portable.zip) must be in the run, or nothing is tagged. A copy named .base.exe is added
 # too, because copies already installed only look for that name (remove it once they have all updated).
 # The build starts this workflow itself; you can also run it by hand with a run ID.
 
@@ -69,17 +70,20 @@ jobs:
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-AK[0-9]+)?$ ]] || { echo "Bad version '$version'"; exit 1; }
           tag="v$version"
 
+          # Every download must be in the run before a tag or release is created.
+          missing=""
+          for suffix in x64.exe x64.msi x64-per-user.msi x64-portable.zip; do
+            [ -f "installers/anilife-$version.$suffix" ] || missing="$missing anilife-$version.$suffix"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::The build run is missing:$missing. Nothing was tagged or released. Re-run the build with every file ticked."
+            exit 1
+          fi
+
           mkdir -p upload
           cp installers/* upload/
-          # Runs from before the rename have .base.exe only; use it as the .x64.exe too.
-          if ! ls upload | grep -q '\.x64\.exe$'; then
-            base="$(ls upload | grep '\.base\.exe$' | head -n1 || true)"
-            [ -n "$base" ] || { echo "No .x64.exe or .base.exe found; the updater needs one."; exit 1; }
-          else
-            x64="$(ls upload | grep '\.x64\.exe$' | head -n1)"
-            # Legacy name for already-installed clients.
-            cp "upload/$x64" "upload/${x64%.x64.exe}.base.exe"
-          fi
+          # Legacy name: copies already installed only look for a .base.exe asset.
+          cp "installers/anilife-$version.x64.exe" "upload/anilife-$version.base.exe"
           ls -l upload
 
           if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
