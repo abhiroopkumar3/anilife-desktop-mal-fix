@@ -23,7 +23,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.updateAndGet
 
 /**
  * Work that must finish before the app is used again: a list sync, a backup restore, an import.
@@ -32,18 +31,18 @@ import kotlinx.coroutines.flow.updateAndGet
  * waited for.
  */
 object AppBusy {
-    private val holds = MutableStateFlow(0)
-    private val mutableActive = MutableStateFlow(false)
-    val active: StateFlow<Boolean> = mutableActive.asStateFlow()
+    private val mutableHolds = MutableStateFlow(0)
+
+    /** How many holds are running now; the window is blocked while it is above zero. */
+    val holds: StateFlow<Int> = mutableHolds.asStateFlow()
+    val isActive: Boolean get() = mutableHolds.value > 0
 
     suspend fun <T> hold(work: suspend () -> T): T {
-        holds.update { it + 1 }
-        mutableActive.value = true
+        mutableHolds.update { it + 1 }
         try {
             return work()
         } finally {
-            val left = holds.updateAndGet { it - 1 }
-            mutableActive.value = left > 0
+            mutableHolds.update { it - 1 }
         }
     }
 }

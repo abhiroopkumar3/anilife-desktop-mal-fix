@@ -12,13 +12,13 @@ import kotlin.test.assertTrue
 class AppBusyTest {
     @Test
     fun isBusyOnlyWhileWorkRuns() = runBlocking {
-        assertFalse(AppBusy.active.value)
+        assertFalse(AppBusy.isActive)
         val result = AppBusy.hold {
-            assertTrue(AppBusy.active.value)
+            assertTrue(AppBusy.isActive)
             7
         }
         assertEquals(7, result)
-        assertFalse(AppBusy.active.value)
+        assertFalse(AppBusy.isActive)
     }
 
     @Test
@@ -27,21 +27,21 @@ class AppBusyTest {
         val releaseSecond = CompletableDeferred<Unit>()
         val first = async(Dispatchers.Default) { AppBusy.hold { releaseFirst.await() } }
         val second = async(Dispatchers.Default) { AppBusy.hold { releaseSecond.await() } }
-        while (!AppBusy.active.value) Thread.yield()
+        while (AppBusy.holds.value < 2) Thread.yield()
 
         releaseFirst.complete(Unit)
         first.await()
-        assertTrue(AppBusy.active.value)
+        assertTrue(AppBusy.isActive)
 
         releaseSecond.complete(Unit)
         second.await()
-        assertFalse(AppBusy.active.value)
+        assertFalse(AppBusy.isActive)
     }
 
     @Test
     fun letsGoWhenTheWorkFails() = runBlocking {
         val failure = runCatching { AppBusy.hold { error("sync failed") } }.exceptionOrNull()
         assertEquals("sync failed", failure?.message)
-        assertFalse(AppBusy.active.value)
+        assertFalse(AppBusy.isActive)
     }
 }

@@ -273,7 +273,8 @@ fun AniLifeApp(
     }
 
     var picking by remember { mutableStateOf(false) }
-    val appBusy by me.enivzoy.anilife.app.ui.AppBusy.active.collectAsState()
+    val appBusyHolds by me.enivzoy.anilife.app.ui.AppBusy.holds.collectAsState()
+    val appBusy = appBusyHolds > 0
     var pickError by remember { mutableStateOf<String?>(null) }
     val mpvLibrary = remember { runCatching { Mpv.defaultLibraryPath() }.getOrNull() }
     var showIntro by remember { mutableStateOf(settings.playIntro) }
