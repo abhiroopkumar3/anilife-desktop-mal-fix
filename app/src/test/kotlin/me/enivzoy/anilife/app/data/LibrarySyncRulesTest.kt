@@ -88,6 +88,20 @@ class RemoteProgressReconcileTest {
     }
 
     @Test
+    fun `a caught-up row loses the resume position of the episode finished elsewhere`() {
+        val updated = continueAfterRemoteProgress(local(7.0, position = 800.0), 7, 5_000, 13, airedEpisodes = 7)
+        assertEquals(7.0, updated?.progress?.episode)
+        assertEquals(0.0, updated?.progress?.position)
+        assertEquals(1400.0, updated?.progress?.duration)
+    }
+
+    @Test
+    fun `a resume position on an episode the account has not finished is kept`() {
+        val updated = continueAfterRemoteProgress(local(9.0, position = 800.0, watched = setOf(1.0)), 7, 5_000, 13, airedEpisodes = 9)
+        assertEquals(800.0, updated?.progress?.position)
+    }
+
+    @Test
     fun `an advanced row is timestamped when the other device watched it`() {
         assertEquals(5_000L, continueAfterRemoteProgress(local(3.0, updatedAt = 1_000), 8, 5_000, 1000)?.updatedAt)
     }

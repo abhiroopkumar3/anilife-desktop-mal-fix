@@ -73,9 +73,12 @@ fun continueAfterRemoteProgress(
     if (remoteProgress < 1) return null
     val target = remoteRowEpisode(remoteProgress, totalEpisodes, airedEpisodes)?.toDouble() ?: return null
     val watched = local.watched + generateSequence(1.0) { it + 1.0 }.takeWhile { it <= remoteProgress }.toSet()
+    // A resume position belonging to an episode the account counts as finished is stale, whether or
+    // not the row has to move. Left in place it also stops Home from hiding a caught-up row.
+    val position = if (local.progress.episode <= remoteProgress) 0.0 else local.progress.position
     if (target <= local.progress.episode) {
-        if (watched == local.watched) return null
-        return local.copy(watched = watched)
+        if (watched == local.watched && position == local.progress.position) return null
+        return local.copy(progress = local.progress.copy(position = position), watched = watched)
     }
     return local.copy(
         progress = ContinueProgress(target, 0.0, 0.0),
