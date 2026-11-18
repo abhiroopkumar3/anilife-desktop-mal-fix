@@ -57,15 +57,6 @@ class AniListException(override val message: String) : RuntimeException(message)
 
 
 
-/**
- * AniList's `isAdult` argument is a filter, not a switch: false keeps adult titles out, true returns
- * only adult titles, and leaving it unset returns both. Showing adult content therefore sends nothing
- * (Android's `if (hideAdult) put("isAdult", false)`).
- */
-internal fun kotlinx.serialization.json.JsonObjectBuilder.putAdultFilter(showAdult: Boolean) {
-    if (!showAdult) put("isAdult", JsonPrimitive(false))
-}
-
 class AniListClient(
     private val http: HttpClient = defaultHttpClient(),
     private val endpoint: String = ENDPOINT,
@@ -168,7 +159,7 @@ class AniListClient(
                 put("search", query.takeIf { it.isNotBlank() }?.let(::JsonPrimitive) ?: JsonNull)
                 put("genre", genre?.let(::JsonPrimitive) ?: JsonNull)
                 put("sort", buildJsonArray { add(JsonPrimitive(sort)) })
-                putAdultFilter(showAdult)
+                put("isAdult", JsonPrimitive(showAdult))
             },
         )
 
@@ -433,7 +424,7 @@ class AniListClient(
             query,
             buildJsonObject {
                 put("page", page)
-                putAdultFilter(showAdult)
+                put("isAdult", JsonPrimitive(showAdult))
             },
         )
         return (data["Page"] as? JsonObject)

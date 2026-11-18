@@ -105,7 +105,6 @@ fun AniLifeApp(
     val repository = remember {
         AniListRepository(
             titleLanguage = settingsStore.settings.value.titleLanguage,
-            hideAdult = settingsStore.settings.value.hideAdultContent,
             videoProviders = animeVideoProviders,
         )
     }
@@ -257,7 +256,6 @@ fun AniLifeApp(
     fun updateSettings(transform: (me.enivzoy.anilife.app.data.AppSettings) -> me.enivzoy.anilife.app.data.AppSettings) {
         settingsStore.update(transform)
         repository.setTitleLanguage(settingsStore.settings.value.titleLanguage)
-        repository.setHideAdult(settingsStore.settings.value.hideAdultContent)
     }
 
     fun connectDiscord() {
