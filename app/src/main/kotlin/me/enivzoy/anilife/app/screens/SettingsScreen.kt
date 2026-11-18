@@ -1219,18 +1219,23 @@ private fun DataSettings(
     var result by remember { mutableStateOf<DataResult?>(null) }
     var pendingRestore by remember { mutableStateOf<BackupDocument?>(null) }
 
-    fun run(label: String, work: suspend () -> DataResult) {
+    // True while a restore or an import runs: the progress line turns an icon, and the whole window waits.
+    var blocking by remember { mutableStateOf(false) }
+
+    fun run(label: String, holdsApp: Boolean = false, work: suspend () -> DataResult) {
         busy = label
+        blocking = holdsApp
         result = null
         scope.launch {
             result = try {
-                work()
+                if (holdsApp) me.enivzoy.anilife.app.ui.AppBusy.hold { work() } else work()
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (failure: Throwable) {
                 DataResult(failure.message?.takeIf(String::isNotBlank) ?: "That didn't work.", isError = true)
             } finally {
                 busy = null
+                blocking = false
             }
         }
     }
@@ -1264,7 +1269,7 @@ private fun DataSettings(
     }
 
     fun restore(document: BackupDocument) {
-        run("Restoring") {
+        run("Restoring", holdsApp = true) {
             val summary = transfer.restore(document, applySettings = onSettingsChange, onProgress = progressLabel("Restoring"))
             val extras = buildList {
                 if (summary.notRestored.isNotEmpty()) add("Not carried over: ${summary.notRestored.joinToString(", ")}.")
@@ -1296,7 +1301,7 @@ private fun DataSettings(
 
     fun importMal() {
         val source = chooseDataFile("Choose a MyAnimeList export (.xml or .xml.gz)", save = false) ?: return
-        run("Importing") {
+        run("Importing", holdsApp = true) {
             val bytes = withContext(Dispatchers.IO) {
                 if (java.nio.file.Files.size(source) > me.enivzoy.anilife.app.data.MalImport.MAX_SOURCE_BYTES) {
                     throw IllegalArgumentException("The MAL export is larger than the 16 MB safety limit.")
@@ -1334,7 +1339,17 @@ private fun DataSettings(
             "Add a MAL export to your library. Titles you already saved are left alone.",
         ) { SettingsButton(text = "Import", enabled = busy == null, onClick = ::importMal) }
     }
-    busy?.let { SettingsNote("$it…") }
+    busy?.let { label ->
+        if (blocking) {
+            Row(Modifier.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                me.enivzoy.anilife.app.ui.SpinningRefreshIcon(14.dp, AniLifeColors.MutedForeground)
+                Spacer(Modifier.width(6.dp))
+                Text("$label…", color = AniLifeColors.MutedForeground, fontSize = 12.sp, lineHeight = 17.sp)
+            }
+        } else {
+            SettingsNote("$label…")
+        }
+    }
     result?.takeIf { it.message.isNotBlank() }?.let { outcome ->
         Text(
             outcome.message,

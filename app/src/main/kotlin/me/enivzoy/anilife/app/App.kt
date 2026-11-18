@@ -18,6 +18,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import me.enivzoy.anilife.app.ui.blockInput
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -272,6 +273,7 @@ fun AniLifeApp(
     }
 
     var picking by remember { mutableStateOf(false) }
+    val appBusy by me.enivzoy.anilife.app.ui.AppBusy.active.collectAsState()
     var pickError by remember { mutableStateOf<String?>(null) }
     val mpvLibrary = remember { runCatching { Mpv.defaultLibraryPath() }.getOrNull() }
     var showIntro by remember { mutableStateOf(settings.playIntro) }
@@ -358,7 +360,10 @@ fun AniLifeApp(
     Box(
         Modifier.fillMaxSize()
             .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown &&
+                // While a sync, restore, import or random pick runs, the keyboard does nothing.
+                if (appBusy || picking) {
+                    true
+                } else if (event.type == KeyEventType.KeyDown &&
                     (event.isCtrlPressed || event.isMetaPressed) &&
                     event.key == Key.K
                 ) {
@@ -533,7 +538,8 @@ fun AniLifeApp(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(AniLifeColors.Scrim.copy(alpha = 0.35f)),
+                .background(AniLifeColors.Scrim.copy(alpha = 0.35f))
+                .blockInput(),
             contentAlignment = Alignment.Center,
         ) {
             Row(
@@ -553,6 +559,9 @@ fun AniLifeApp(
             }
         }
     }
+
+    // A sync, restore or import is running: nothing in the window can be clicked until it ends.
+    if (appBusy) Box(Modifier.fillMaxSize().blockInput())
 
     if (accountOpen && accountService != null && accountName != null) {
         me.enivzoy.anilife.app.ui.AccountSheet(

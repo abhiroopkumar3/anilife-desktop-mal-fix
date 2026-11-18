@@ -62,6 +62,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
@@ -158,6 +159,8 @@ fun AccountSheet(
     }
     var stats by remember(service) { mutableStateOf<AccountStats?>(null) }
     var syncing by remember { mutableStateOf(false) }
+    // True while a press of Sync now is running: the sheet, and the app behind it, wait for it.
+    var syncClicked by remember { mutableStateOf(false) }
     var tab by remember { mutableStateOf(SheetTab.OVERVIEW) }
     var confirmingLogout by remember { mutableStateOf(false) }
 
@@ -182,11 +185,15 @@ fun AccountSheet(
         if (syncing) return
         scope.launch {
             syncing = true
+            syncClicked = true
             try {
-                AccountLibrary.refresh()
-                readAccount()
+                AppBusy.hold {
+                    AccountLibrary.refresh()
+                    readAccount()
+                }
             } finally {
                 syncing = false
+                syncClicked = false
             }
         }
     }
@@ -221,8 +228,16 @@ fun AccountSheet(
 
     val insights = remember(entries, stats) { accountInsights(entries, stats) }
     val scroll = rememberScrollState()
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(dismissOnClickOutside = true)) {
-        Box(Modifier.fillMaxSize().padding(vertical = 28.dp), contentAlignment = Alignment.Center) {
+    Dialog(
+        onDismissRequest = { if (!syncClicked) onDismiss() },
+        properties = DialogProperties(dismissOnClickOutside = true),
+    ) {
+        Box(
+            Modifier.fillMaxSize().padding(vertical = 28.dp)
+                // While Sync now runs, the keyboard does nothing in the sheet either.
+                .onPreviewKeyEvent { syncClicked },
+            contentAlignment = Alignment.Center,
+        ) {
             Column(
                 Modifier
                     .widthIn(max = 520.dp)
@@ -236,7 +251,7 @@ fun AccountSheet(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                SheetHeader(service, name, avatar, stats?.banner, continueRows.firstOrNull()?.anime?.cover, syncing, ::syncNow, onDismiss)
+                SheetHeader(service, name, avatar, stats?.banner, continueRows.firstOrNull()?.anime?.cover, syncing, syncClicked, ::syncNow, onDismiss)
                 if (syncing && entries.isEmpty()) {
                     Text("Syncing your profile…", color = AniLifeColors.MutedForeground, fontSize = 14.sp)
                 } else {
@@ -264,8 +279,9 @@ fun AccountSheet(
                         }
                     }
                 }
-                AccountActions(service, ::syncNow) { confirmingLogout = true }
+                AccountActions(service, syncClicked, ::syncNow) { confirmingLogout = true }
             }
+            if (syncClicked) Box(Modifier.fillMaxSize().blockInput())
         }
     }
 }
@@ -278,6 +294,7 @@ private fun SheetHeader(
     banner: String?,
     fallbackBanner: String?,
     syncing: Boolean,
+    syncClicked: Boolean,
     onSync: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -298,7 +315,7 @@ private fun SheetHeader(
                     ),
                 )
                 Row(Modifier.align(Alignment.TopEnd).padding(4.dp)) {
-                    BannerButton(Icons.Rounded.Refresh, "Sync now", onSync, enabled = !syncing)
+                    BannerButton(Icons.Rounded.Refresh, "Sync now", onSync, enabled = !syncing, spinning = syncClicked)
                     BannerButton(Icons.Rounded.Close, "Close", onDismiss)
                 }
             }
@@ -348,14 +365,15 @@ private fun SheetHeader(
 }
 
 @Composable
-private fun BannerButton(icon: ImageVector, label: String, onClick: () -> Unit, enabled: Boolean = true) {
+private fun BannerButton(icon: ImageVector, label: String, onClick: () -> Unit, enabled: Boolean = true, spinning: Boolean = false) {
     Box(
         Modifier.size(40.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.35f))
             .clickable(enabled = enabled, onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, label, tint = Color.White.copy(alpha = if (enabled) 1f else 0.4f), modifier = Modifier.size(20.dp))
+        if (spinning) SpinningRefreshIcon(20.dp, Color.White, icon = icon)
+        else Icon(icon, label, tint = Color.White.copy(alpha = if (enabled) 1f else 0.4f), modifier = Modifier.size(20.dp))
     }
 }
 
@@ -698,16 +716,16 @@ private fun ColumnChart(title: String, subtitle: String, items: List<Pair<String
 
 /** The account's own controls, as rows at the foot of every tab. */
 @Composable
-private fun AccountActions(service: ListService, onSync: () -> Unit, onLogout: () -> Unit) {
+private fun AccountActions(service: ListService, syncClicked: Boolean, onSync: () -> Unit, onLogout: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionTitle("Account", "Signed in with ${service.label()}")
-        ActionRow(Icons.Rounded.Refresh, "Sync now", "Pull your lists from ${service.label()} again", onSync)
+        ActionRow(Icons.Rounded.Refresh, "Sync now", "Pull your lists from ${service.label()} again", onSync, spinning = syncClicked)
         ActionRow(Icons.AutoMirrored.Rounded.Logout, "Log out", "Sign this PC out of ${service.label()}", onLogout, danger = true)
     }
 }
 
 @Composable
-private fun ActionRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit, danger: Boolean = false) {
+private fun ActionRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit, danger: Boolean = false, spinning: Boolean = false) {
     val shape = RoundedCornerShape(12.dp)
     val ink = if (danger) AniLifeColors.Destructive else AniLifeColors.Foreground
     Row(
@@ -716,7 +734,8 @@ private fun ActionRow(icon: ImageVector, title: String, subtitle: String, onClic
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, tint = ink, modifier = Modifier.size(22.dp))
+        if (spinning) SpinningRefreshIcon(22.dp, ink, icon = icon)
+        else Icon(icon, null, tint = ink, modifier = Modifier.size(22.dp))
         Column(Modifier.weight(1f).padding(start = 14.dp)) {
             Text(title, color = ink, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             Text(subtitle, color = AniLifeColors.MutedForeground, fontSize = 12.sp)

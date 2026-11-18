@@ -66,6 +66,7 @@ fun AniListAccountSettings(repository: AniListRepository, onOpenAccount: () -> U
 
     val remoteIds = remember(entries) { entries.mapTo(mutableSetOf()) { it.anime.id } }
     val localOnly = remember(localEntries, remoteIds) { localEntries.filterNot { it.id in remoteIds } }
+    var syncingNow by remember { mutableStateOf(false) }
     val connecting = syncStatus.connection == AniListConnection.CONNECTING || syncStatus.syncing
 
     fun startAniListSignIn() {
@@ -108,18 +109,22 @@ fun AniListAccountSettings(repository: AniListRepository, onOpenAccount: () -> U
                     onClick = {
                         scope.launch {
                             actionError = null
+                            syncingNow = true
                             try {
-                                AniListSync.refreshList()
+                                // The whole window waits until the list has been read.
+                                me.enivzoy.anilife.app.ui.AppBusy.hold { AniListSync.refreshList() }
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (failure: Throwable) {
                                 actionError = failure.message ?: "Couldn't refresh AniList."
+                            } finally {
+                                syncingNow = false
                             }
                         }
                     },
                     enabled = !connecting,
                 ) {
-                    if (connecting) CircularProgressIndicator(Modifier.width(16.dp), strokeWidth = 2.dp)
+                    if (syncingNow || connecting) me.enivzoy.anilife.app.ui.SpinningRefreshIcon(24.dp, androidx.compose.material3.LocalContentColor.current)
                     else Icon(Icons.Rounded.Refresh, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
                     Text("Sync now")

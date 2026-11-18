@@ -137,8 +137,13 @@ fun MyAnimeListScreen(
                         modifier = Modifier.weight(1f),
                     )
                     OutlinedButton(onClick = { showTags = true }) { Text("Tags shown as lists") }
-                    OutlinedButton(onClick = { scope.launch { refreshMalList() } }, enabled = !loading) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = null)
+                    OutlinedButton(
+                        onClick = { scope.launch { me.enivzoy.anilife.app.ui.AppBusy.hold { refreshMalList() } } },
+                        enabled = !loading,
+                    ) {
+                        // Turns while the list is read, and the whole window waits for it.
+                        if (loading) me.enivzoy.anilife.app.ui.SpinningRefreshIcon(24.dp, androidx.compose.material3.LocalContentColor.current)
+                        else Icon(Icons.Rounded.Refresh, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
                         Text("Sync now")
                     }
