@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -28,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -117,6 +120,8 @@ fun ApiCredentialsDialog(
                 service.keys.forEach { key ->
                     val state = values.getValue(key)
                     val missing = key == idKey && showRequired && state.value.isBlank()
+                    // The eye shows the value; clicked again it hides it. Each field has its own.
+                    var revealed by remember(key) { mutableStateOf(false) }
                     OutlinedTextField(
                         value = state.value,
                         onValueChange = {
@@ -126,7 +131,15 @@ fun ApiCredentialsDialog(
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text(key.fieldLabel()) },
                         singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
+                        visualTransformation = if (revealed) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { revealed = !revealed }) {
+                                Icon(
+                                    if (revealed) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                    contentDescription = if (revealed) "Hide value" else "Show value",
+                                )
+                            }
+                        },
                         isError = missing,
                         supportingText = if (missing) ({ Text("Value is required.", color = AniLifeColors.Destructive) }) else null,
                     )

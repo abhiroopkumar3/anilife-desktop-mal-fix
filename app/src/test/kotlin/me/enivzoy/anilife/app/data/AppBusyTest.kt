@@ -1,4 +1,4 @@
-package me.enivzoy.anilife.app.ui
+package me.enivzoy.anilife.app.data
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers

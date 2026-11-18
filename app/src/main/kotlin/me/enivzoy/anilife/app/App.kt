@@ -274,7 +274,7 @@ fun AniLifeApp(
     }
 
     var picking by remember { mutableStateOf(false) }
-    val appBusyHolds by me.enivzoy.anilife.app.ui.AppBusy.holds.collectAsState()
+    val appBusyHolds by me.enivzoy.anilife.app.data.AppBusy.holds.collectAsState()
     val appBusy = appBusyHolds > 0
     var pickError by remember { mutableStateOf<String?>(null) }
     val mpvLibrary = remember { runCatching { Mpv.defaultLibraryPath() }.getOrNull() }

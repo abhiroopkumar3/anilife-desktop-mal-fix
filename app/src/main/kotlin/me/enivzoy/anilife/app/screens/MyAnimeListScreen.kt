@@ -138,7 +138,7 @@ fun MyAnimeListScreen(
                     )
                     OutlinedButton(onClick = { showTags = true }) { Text("Tags shown as lists") }
                     OutlinedButton(
-                        onClick = { scope.launch { me.enivzoy.anilife.app.ui.AppBusy.hold { refreshMalList() } } },
+                        onClick = { scope.launch { me.enivzoy.anilife.app.data.AppBusy.hold { refreshMalList() } } },
                         enabled = !loading,
                     ) {
                         // Turns while the list is read, and the whole window waits for it.

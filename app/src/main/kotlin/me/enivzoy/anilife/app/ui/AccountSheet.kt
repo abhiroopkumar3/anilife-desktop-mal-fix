@@ -67,6 +67,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 import me.enivzoy.anilife.app.data.AccountInsights
+import me.enivzoy.anilife.app.data.AppBusy
 import me.enivzoy.anilife.app.data.AccountLibrary
 import me.enivzoy.anilife.app.data.AccountStats
 import me.enivzoy.anilife.app.data.ActivityKind

@@ -112,7 +112,7 @@ fun AniListAccountSettings(repository: AniListRepository, onOpenAccount: () -> U
                             syncingNow = true
                             try {
                                 // The whole window waits until the list has been read.
-                                me.enivzoy.anilife.app.ui.AppBusy.hold { AniListSync.refreshList() }
+                                me.enivzoy.anilife.app.data.AppBusy.hold { AniListSync.refreshList() }
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (failure: Throwable) {

@@ -60,17 +60,23 @@ object AccountAdoption {
     private val store = ActiveAccountStore()
 
     suspend fun connectAniList(pastedAccessToken: String) {
-        AniListSync.connect(pastedAccessToken)
-        store.write(ActiveAccount(ListService.ANILIST, System.currentTimeMillis()))
-        if (MyAnimeListSync.user.value != null) MyAnimeListSync.disconnect()
-        AccountLibrary.adopted()
+        // The browser step is over once the token is pasted; checking it and the first sync make the window wait.
+        AppBusy.hold {
+            AniListSync.connect(pastedAccessToken)
+            store.write(ActiveAccount(ListService.ANILIST, System.currentTimeMillis()))
+            if (MyAnimeListSync.user.value != null) MyAnimeListSync.disconnect()
+            AccountLibrary.adopted()
+        }
     }
 
     suspend fun connectMyAnimeList() {
+        // The browser step comes first and leaves the window usable; the first sync after it makes the window wait.
         MyAnimeListSync.connect()
-        store.write(ActiveAccount(ListService.MAL, System.currentTimeMillis()))
-        if (AniListSync.user.value != null) AniListSync.disconnect()
-        AccountLibrary.adopted()
+        AppBusy.hold {
+            store.write(ActiveAccount(ListService.MAL, System.currentTimeMillis()))
+            if (AniListSync.user.value != null) AniListSync.disconnect()
+            AccountLibrary.adopted()
+        }
     }
 
     /** Run after both services have restored, to settle anyone who has both connected. */

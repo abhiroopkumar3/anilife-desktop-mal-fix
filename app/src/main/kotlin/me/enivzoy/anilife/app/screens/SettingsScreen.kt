@@ -1228,7 +1228,7 @@ private fun DataSettings(
         result = null
         scope.launch {
             result = try {
-                if (holdsApp) me.enivzoy.anilife.app.ui.AppBusy.hold { work() } else work()
+                if (holdsApp) me.enivzoy.anilife.app.data.AppBusy.hold { work() } else work()
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (failure: Throwable) {
