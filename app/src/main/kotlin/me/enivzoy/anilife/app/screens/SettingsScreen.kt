@@ -254,6 +254,7 @@ private val settingSearchEntries = listOf(
     SettingSearchEntry("Video providers", SettingsPage.Servers, "providers servers streaming wasm extensions"),
     SettingSearchEntry("Discord Rich Presence", SettingsPage.Accounts, "discord activity status watching idle connect"),
     SettingSearchEntry("Discord Application ID", SettingsPage.Accounts, "discord developer application id"),
+    SettingSearchEntry("Hide adult content", SettingsPage.Content, "adult hentai 18 nsfw hide browse search schedule"),
     SettingSearchEntry("Only episodes you can watch", SettingsPage.Content, "continue watching hide next episode aired airing schedule"),
     SettingSearchEntry("Title display language", SettingsPage.Content, "anime name title romaji english native"),
     SettingSearchEntry("App font", SettingsPage.Appearance, "font typeface text sans serif mono"),
@@ -1138,6 +1139,14 @@ private fun ContentSettings(settings: AppSettings, onSettingsChange: ((AppSettin
             selected = settings.titleLanguage,
             onSelect = { value -> onSettingsChange { it.copy(titleLanguage = value) } },
         )
+    }
+    SettingsRow(
+        "Hide adult content",
+        "Keep hentai out of Home, Search, Browse and Schedule.",
+    ) {
+        SettingsSwitch(settings.hideAdultContent) { enabled ->
+            onSettingsChange { it.copy(hideAdultContent = enabled) }
+        }
     }
     SettingsRow(
         "Only episodes you can watch",

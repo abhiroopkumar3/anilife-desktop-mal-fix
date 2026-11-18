@@ -24,6 +24,7 @@ data class CardLookup(val cards: List<AnimeCard>, val failedBatches: Int)
 class AniListRepository(
     private val client: AniListClient = AniListClient(),
     titleLanguage: String = "english",
+    hideAdult: Boolean = true,
     private val videoProviders: AnimeVideoProviders = AnimeVideoProviders(),
     val library: LocalLibraryStore = LocalLibraryStore(),
 ) {
@@ -38,10 +39,20 @@ class AniListRepository(
     private var titleLanguage = titleLanguage
 
     @Volatile
+    private var hideAdult = hideAdult
+
+    @Volatile
     private var homeCache: Home? = homeSnapshot.read()?.withTitlePreference(titleLanguage)
 
     init {
         client.titleLanguage = titleLanguage
+    }
+
+    /** Android's "Hide adult content". Home's saved rows were fetched under the old choice, so they are dropped. */
+    fun setHideAdult(hide: Boolean) {
+        if (hideAdult == hide) return
+        hideAdult = hide
+        homeCache = null
     }
 
     fun setTitleLanguage(language: String) {
@@ -61,7 +72,7 @@ class AniListRepository(
         if (!force) homeCache?.let { return it }
         return homeMutex.withLock {
             if (!force) homeCache?.let { return@withLock it }
-            client.home().also {
+            client.home(showAdult = !hideAdult).also {
                 homeCache = it
                 withContext(Dispatchers.IO) { homeSnapshot.write(it) }
             }
@@ -69,12 +80,12 @@ class AniListRepository(
     }
 
     suspend fun search(query: String, genre: String? = null, page: Int = 1): SearchPage =
-        client.search(query = query, genre = genre, page = page)
+        client.search(query = query, genre = genre, page = page, showAdult = !hideAdult)
 
     suspend fun detail(id: Long): AnimeDetail = client.detail(id)
 
     suspend fun schedule(): List<me.enivzoy.anilife.core.model.AiringEntry> =
-        client.schedule(days = 7, since = System.currentTimeMillis() / 1000 - 2 * 86_400L)
+        client.schedule(days = 7, showAdult = !hideAdult, since = System.currentTimeMillis() / 1000 - 2 * 86_400L)
 
     /**
      * When the next episodes of [ids] air: from yesterday for [UPCOMING_AIRING_DAYS] days, by title.
@@ -91,7 +102,7 @@ class AniListRepository(
     suspend fun recentlyAired(hours: Int): List<me.enivzoy.anilife.core.model.AiringEntry> =
         client.schedule(days = 1, since = System.currentTimeMillis() / 1000 - hours * 3600L)
 
-    suspend fun random(): AnimeCard? = client.random()
+    suspend fun random(): AnimeCard? = client.random(showAdult = !hideAdult)
 
     suspend fun detectLocalMedia(root: java.nio.file.Path, audio: String, onProgress: (String, String) -> Unit = { _, _ -> }): AutoDetectResult {
         val result = MediaAutoDetector.scan(root, audio, { query -> search(query).results }, onProgress)

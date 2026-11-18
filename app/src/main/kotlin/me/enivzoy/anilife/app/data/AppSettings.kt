@@ -76,6 +76,8 @@ data class AppSettings(
     val aniListSubmitPercent: Int = 80,
     /** Keep saved titles and the account's Plan to Watch in step, and add titles saved by a restore or an import to it. */
     val syncSavedToAccount: Boolean = true,
+    /** Android's "Hide adult content": keep adult titles out of Home, Search, Browse, Schedule and Random. On by default, as there. */
+    val hideAdultContent: Boolean = true,
     /** Android's "Only episodes you can watch": hide a Continue Watching title until its next episode is out. Off by default, as there. */
     val hideUnairedFromContinue: Boolean = false,
     val checkUpdatesOnLaunch: Boolean = true,
@@ -157,6 +159,7 @@ class AppSettingsStore(private val file: File = settingsFile()) {
                 .toIntOrNull()?.coerceIn(1, 100) ?: 80,
             syncSavedToAccount = properties.getProperty("syncSavedToAccount", "true").toBooleanStrictOrNull() ?: true,
             hideUnairedFromContinue = properties.getProperty("hideUnairedFromContinue", "false").toBooleanStrictOrNull() ?: false,
+            hideAdultContent = properties.getProperty("hideAdultContent", "true").toBooleanStrictOrNull() ?: true,
             resumePlayback = properties.getProperty("resumePlayback", "true").toBooleanStrictOrNull() ?: true,
             hardwareDecoding = properties.getProperty("hardwareDecoding", "true").toBooleanStrictOrNull() ?: true,
             playbackBufferSize = properties.getProperty("playbackBufferSize", "auto"),
@@ -216,6 +219,7 @@ class AppSettingsStore(private val file: File = settingsFile()) {
             setProperty("aniListSubmitPercent", settings.aniListSubmitPercent.toString())
             setProperty("syncSavedToAccount", settings.syncSavedToAccount.toString())
             setProperty("hideUnairedFromContinue", settings.hideUnairedFromContinue.toString())
+            setProperty("hideAdultContent", settings.hideAdultContent.toString())
             setProperty("resumePlayback", settings.resumePlayback.toString())
             setProperty("hardwareDecoding", settings.hardwareDecoding.toString())
             setProperty("playbackBufferSize", settings.playbackBufferSize)

@@ -165,6 +165,21 @@ class AppSettingsTest {
     }
 
     @Test
+    fun hideAdultContentIsOnByDefaultAsOnAndroidAndPersistsWhenSwitchedOff() {
+        val root = Files.createTempDirectory("AniLife-settings-adult")
+        try {
+            val file = root.resolve("settings.properties").toFile()
+            assertEquals(true, AppSettingsStore(file).settings.value.hideAdultContent)
+            AppSettingsStore(file).update { it.copy(hideAdultContent = false) }
+            assertEquals(false, AppSettingsStore(file).settings.value.hideAdultContent)
+            AppSettingsStore(file).update { it.copy(hideAdultContent = true) }
+            assertEquals(true, AppSettingsStore(file).settings.value.hideAdultContent)
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
     fun onlyEpisodesYouCanWatchIsOffByDefaultAsOnAndroidAndPersistsWhenSwitchedOn() {
         val root = Files.createTempDirectory("AniLife-settings-continue")
         try {
