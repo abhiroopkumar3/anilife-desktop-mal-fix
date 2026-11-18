@@ -181,6 +181,25 @@ fun AccountSheet(
         }
     }
 
+    // The refresh button in the banner only re-reads the profile numbers and activity. It turns while it
+    // runs and blocks nothing: the sheet can still be scrolled, switched and closed.
+    var profileRefreshing by remember { mutableStateOf(false) }
+    fun refreshProfile() {
+        if (profileRefreshing || syncing) return
+        scope.launch {
+            profileRefreshing = true
+            try {
+                readAccount()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                // Keep showing what is already there.
+            } finally {
+                profileRefreshing = false
+            }
+        }
+    }
+
     fun syncNow() {
         if (syncing) return
         scope.launch {
@@ -251,7 +270,7 @@ fun AccountSheet(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                SheetHeader(service, name, avatar, stats?.banner, continueRows.firstOrNull()?.anime?.cover, syncing, syncClicked, ::syncNow, onDismiss)
+                SheetHeader(service, name, avatar, stats?.banner, continueRows.firstOrNull()?.anime?.cover, syncing, profileRefreshing, ::refreshProfile, onDismiss)
                 if (syncing && entries.isEmpty()) {
                     Text("Syncing your profile…", color = AniLifeColors.MutedForeground, fontSize = 14.sp)
                 } else {
@@ -281,7 +300,7 @@ fun AccountSheet(
                 }
                 AccountActions(service, syncClicked, ::syncNow) { confirmingLogout = true }
             }
-            if (syncClicked) Box(Modifier.fillMaxSize().blockInput())
+            if (syncClicked) BusyOverlay()
         }
     }
 }
@@ -294,8 +313,8 @@ private fun SheetHeader(
     banner: String?,
     fallbackBanner: String?,
     syncing: Boolean,
-    syncClicked: Boolean,
-    onSync: () -> Unit,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth()) {
@@ -315,7 +334,7 @@ private fun SheetHeader(
                     ),
                 )
                 Row(Modifier.align(Alignment.TopEnd).padding(4.dp)) {
-                    BannerButton(Icons.Rounded.Refresh, "Sync now", onSync, enabled = !syncing, spinning = syncClicked)
+                    BannerButton(Icons.Rounded.Refresh, "Refresh profile", onRefresh, enabled = !syncing && !refreshing, spinning = refreshing)
                     BannerButton(Icons.Rounded.Close, "Close", onDismiss)
                 }
             }

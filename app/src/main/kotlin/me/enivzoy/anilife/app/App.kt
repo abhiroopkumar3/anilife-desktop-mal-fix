@@ -18,6 +18,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import me.enivzoy.anilife.app.ui.blockInput
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -540,7 +541,8 @@ fun AniLifeApp(
             modifier = Modifier
                 .fillMaxSize()
                 .background(AniLifeColors.Scrim.copy(alpha = 0.35f))
-                .blockInput(),
+                .blockInput()
+                .pointerHoverIcon(me.enivzoy.anilife.app.ui.NotAllowedPointer, overrideDescendants = true),
             contentAlignment = Alignment.Center,
         ) {
             Row(
@@ -562,7 +564,7 @@ fun AniLifeApp(
     }
 
     // A sync, restore or import is running: nothing in the window can be clicked until it ends.
-    if (appBusy) Box(Modifier.fillMaxSize().blockInput())
+    if (appBusy) me.enivzoy.anilife.app.ui.BusyOverlay()
 
     if (accountOpen && accountService != null && accountName != null) {
         me.enivzoy.anilife.app.ui.AccountSheet(
