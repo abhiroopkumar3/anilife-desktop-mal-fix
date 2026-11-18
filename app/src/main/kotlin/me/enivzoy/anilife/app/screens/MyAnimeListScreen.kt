@@ -52,7 +52,6 @@ fun MyAnimeListScreen(
     repository: AniListRepository,
     settings: me.enivzoy.anilife.app.data.AppSettings,
     onSettingsChange: ((me.enivzoy.anilife.app.data.AppSettings) -> me.enivzoy.anilife.app.data.AppSettings) -> Unit,
-    refresh: me.enivzoy.anilife.app.ui.RefreshHost,
     onOpenAccount: () -> Unit = {},
 ) {
     var showTags by remember { mutableStateOf(false) }
@@ -93,17 +92,6 @@ fun MyAnimeListScreen(
                 loading = false
             }
         }
-    }
-
-    // The profile page's pull-to-refresh on Android reads the account again: the lists, then the
-    // activity history. A failed read leaves what is showing, and each account's own status line or
-    // error text says why.
-    me.enivzoy.anilife.app.ui.RefreshOn(refresh) {
-        if (AniListSync.user.value != null || MyAnimeListSync.user.value != null) {
-            me.enivzoy.anilife.app.data.AccountLibrary.refresh()
-        }
-        if (MyAnimeListSync.user.value != null) refreshMalList()
-        if (AniListSync.user.value != null) AniListSync.refreshActivity()
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 28.dp)) {

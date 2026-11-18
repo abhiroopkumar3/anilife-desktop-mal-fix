@@ -275,3 +275,32 @@ class AccountPullThrottleTest {
     @Test
     fun `a pull is skipped while another is running`() = assertFalse(accountPullDue(500_000, 0, running = true))
 }
+
+class MalCardCacheTest {
+    private var clock = 1_000L
+    private val cache = MalCardCache { clock }
+    private fun card(id: Long, status: String?) = AnimeCard(id = id, title = "t$id", status = status)
+
+    @Test
+    fun `a finished title held within the week is reused`() {
+        cache.remember(listOf(card(1, "FINISHED")))
+        clock += MalCardCache.TTL_MS - 1
+        assertEquals(1L, cache.reusable(1)?.id)
+    }
+
+    @Test
+    fun `a finished title is fetched again once the week is up`() {
+        cache.remember(listOf(card(1, "FINISHED")))
+        clock += MalCardCache.TTL_MS
+        assertNull(cache.reusable(1))
+    }
+
+    @Test
+    fun `an airing, upcoming or hiatus title is never reused`() {
+        cache.remember(listOf(card(1, "RELEASING"), card(2, "NOT_YET_RELEASED"), card(3, "HIATUS"), card(4, null)))
+        listOf(1L, 2L, 3L, 4L).forEach { assertNull(cache.reusable(it)) }
+    }
+
+    @Test
+    fun `a title never held is fetched`() = assertNull(cache.reusable(9))
+}

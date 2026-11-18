@@ -27,6 +27,7 @@ object AccountLibrary {
     private val mutex = Mutex()
     private val snapshots = StatusSnapshotStore()
     private val idMap = MalIdMap()
+    private val cards = MalCardCache()
     private val pending = PendingSavedStore()
 
     private val mutableMalEntries = MutableStateFlow<List<ListEntry>>(emptyList())
@@ -60,7 +61,12 @@ object AccountLibrary {
                     }.awaitAll().toMap()
                 }
                 val mapped = resolved.values.filterNotNull().distinct()
-                val mappedCards = if (mapped.isEmpty()) emptyList() else repo.cardsByIds(mapped)
+                // Finished titles fetched within the last week are reused; the rest are read fresh.
+                val reused = mapped.mapNotNull(cards::reusable)
+                val reusedIds = reused.mapTo(mutableSetOf()) { it.id }
+                val toFetch = mapped.filterNot { it in reusedIds }
+                val fetched = if (toFetch.isEmpty()) emptyList() else repo.cardsByIds(toFetch).also(cards::remember)
+                val mappedCards = reused + fetched
                 val unmapped = resolved.filterValues { it == null }.keys.toList()
                 val fallback = if (unmapped.isEmpty()) emptyList() else repo.cardsByMalIds(unmapped)
                 malRowsToEntries(rows, joinMalCards(malIds, resolved, mappedCards, fallback))

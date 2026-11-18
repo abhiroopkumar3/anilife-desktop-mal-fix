@@ -128,7 +128,7 @@ fun AniLifeApp(
     // Watch or Settings, so it cannot cover their controls.
     val showRefresh = when (screen) {
         Screen.Home, Screen.Browse, Screen.Schedule, is Screen.Detail -> true
-        Screen.Library, Screen.Profile -> aniListUser != null || malUser != null
+        Screen.Library -> aniListUser != null || malUser != null
         else -> false
     }
     var playerFullscreen by remember { mutableStateOf(false) }
@@ -437,7 +437,7 @@ fun AniLifeApp(
                         notifier = releaseNotifier,
                         onOpenAnime = { navigateTo(Screen.Detail(it)) },
                     )
-                    Screen.Profile -> MyAnimeListScreen(repository, settings, ::updateSettings, refresh, onOpenAccount = { accountOpen = true })
+                    Screen.Profile -> MyAnimeListScreen(repository, settings, ::updateSettings, onOpenAccount = { accountOpen = true })
                     Screen.Downloads -> DownloadsScreen(
                         repository = repository,
                         settings = settings,
