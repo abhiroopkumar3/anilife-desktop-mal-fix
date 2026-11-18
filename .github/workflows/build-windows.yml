@@ -17,6 +17,11 @@ name: Build Windows installers
 #     already has a release. Untick "Publish" to only get the installers as a downloadable artifact.
 #     With "Publish" ticked the release workflow decides: it leaves an existing release alone.
 #
+# File boxes on "Run workflow": one tick box per download (.x64.exe, .x64.msi, .x64-per-user.msi,
+# .x64-portable.zip), all ticked by default. GitHub has no "select all" box, so untick what you do not
+# want. Pushes and syncs always build everything. Publishing needs the .exe, so a run with "Publish"
+# ticked and the .exe unticked stops straight away.
+#
 # Version boxes on "Run workflow": Base and Revision are optional and count only when "Publish" is
 # ticked. Left empty, the version comes from fork-version.properties. Typed, they are checked
 # (base 1.2.3 and never below the current base, revision a whole number) and written back
@@ -31,6 +36,22 @@ on:
     inputs:
       publish:
         description: "Publish a release from this build (untick to only upload the installers)"
+        type: boolean
+        default: true
+      exe:
+        description: "Build the setup wizard (.x64.exe). Needed when Publish is ticked, because the updater uses it"
+        type: boolean
+        default: true
+      msi:
+        description: "Build the system-wide installer (.x64.msi)"
+        type: boolean
+        default: true
+      per_user_msi:
+        description: "Build the per-user installer (.x64-per-user.msi)"
+        type: boolean
+        default: true
+      portable_zip:
+        description: "Build the portable .zip (.x64-portable.zip)"
         type: boolean
         default: true
       base:
@@ -164,15 +185,26 @@ jobs:
           "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "Building version $v"
 
+      # Every build step below runs unless its box was unticked (an empty input, as on a push, counts as ticked).
+      - name: Check the chosen files
+        if: inputs.publish != false && inputs.exe == false
+        run: |
+          Write-Error "Publishing needs the .x64.exe (the updater uses it). Tick it, or untick Publish."
+          exit 1
+
+      - name: Make the output folder
+        run: New-Item -ItemType Directory -Force dist | Out-Null
+
       # The setup wizard (.exe) is built with Inno Setup further down; the two .msi files come from Gradle.
       - name: Build the system-wide installer (.msi)
+        if: inputs.msi != false
         run: |
           .\gradlew :app:packageMsi "-PappVersion=$env:VERSION" --no-daemon --no-configuration-cache
-          New-Item -ItemType Directory -Force dist | Out-Null
           $bin = "app/build/compose/binaries/main"
           Copy-Item (Get-ChildItem "$bin/msi/*.msi" | Select-Object -First 1) "dist/anilife-$env:VERSION.x64.msi"
 
       - name: Build the per-user installer (.msi, no shortcuts, per-user, choose folder)
+        if: inputs.per_user_msi != false
         run: |
           .\gradlew :app:packageMsi "-PappVersion=$env:VERSION" -PperUser=true --no-daemon --no-configuration-cache
           $msi = Get-ChildItem "app/build/compose/binaries/main/msi/*.msi" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -181,11 +213,17 @@ jobs:
       # The app image is what the setup wizard packs and what the portable .zip holds. Unzip, run
       # AniLife.exe, nothing is installed. The folder itself goes in the zip, so unzipping makes one
       # AniLife folder instead of scattering files.
-      - name: Build the app image and the portable .zip
+      - name: Build the app image
+        if: inputs.exe != false || inputs.portable_zip != false
         run: |
           .\gradlew :app:createDistributable "-PappVersion=$env:VERSION" --no-daemon --no-configuration-cache
           $img = "app/build/compose/binaries/main/app/AniLife"
           if (-not (Test-Path "$img/AniLife.exe")) { throw "App image not found at $img" }
+
+      - name: Build the portable .zip
+        if: inputs.portable_zip != false
+        run: |
+          $img = "app/build/compose/binaries/main/app/AniLife"
           $zip = Join-Path $PWD "dist/anilife-$env:VERSION.x64-portable.zip"
           Push-Location (Split-Path $img -Parent)
           & "C:\Program Files\7-Zip\7z.exe" a -tzip -mx=5 $zip "AniLife"
@@ -196,6 +234,7 @@ jobs:
       # The installer wizard: install folder, Start Menu folder, desktop shortcut, then a last page
       # with Launch and a GitHub link. Packs the same app image the portable .zip holds.
       - name: Build installer wizard (.exe)
+        if: inputs.exe != false
         run: |
           choco install innosetup --no-progress -y
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
@@ -208,6 +247,7 @@ jobs:
           if ($wizard.Length -lt 50MB) { throw "Installer is only $($wizard.Length) bytes; the payload is missing." }
 
       - name: Write version manifest
+        if: inputs.exe != false
         run: |
           $exe = "dist/anilife-$env:VERSION.x64.exe"
           $asset = [ordered]@{
@@ -229,8 +269,8 @@ jobs:
       - name: List outputs
         run: |
           Get-ChildItem dist | ForEach-Object { "{0,8:N1} MB  {1}" -f ($_.Length/1MB), $_.Name }
-          $portable = Get-Item "dist/anilife-$env:VERSION.x64-portable.zip"
-          if ($portable.Length -lt 50MB) { throw "Portable zip is only $($portable.Length) bytes; the payload is missing." }
+          $portable = Get-Item "dist/anilife-$env:VERSION.x64-portable.zip" -ErrorAction SilentlyContinue
+          if ($portable -and $portable.Length -lt 50MB) { throw "Portable zip is only $($portable.Length) bytes; the payload is missing." }
 
       - name: Upload installers
         uses: actions/upload-artifact@v4
