@@ -6,6 +6,12 @@ name: Test on Windows ARM
 # Run it by hand. Leave run_id empty to use the newest successful Build run.
 
 on:
+  # GitHub only lists a manually started workflow once it is on main. Until this file reaches main,
+  # a push to the feature branch that touches it runs it (newest successful build, 30 s). Remove
+  # this push trigger once the file is on main.
+  push:
+    branches: [feat/library-refresh-accounts-installer]
+    paths: [.github/workflows/test-windows-arm.yml]
   workflow_dispatch:
     inputs:
       run_id:
@@ -73,10 +79,11 @@ jobs:
           Note "Installed at $exe"
 
           $app = Start-Process $exe -PassThru
-          Start-Sleep -Seconds ([int]$env:WAIT)
+          $wait = if ($env:WAIT) { [int]$env:WAIT } else { 30 }
+          Start-Sleep -Seconds $wait
           $app.Refresh()
           $alive = -not $app.HasExited
-          Note "Still running after $env:WAIT s: $alive"
+          Note "Still running after $wait s: $alive"
 
           Add-Type @"
           using System; using System.Runtime.InteropServices;
