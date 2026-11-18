@@ -4,7 +4,8 @@ name: Publish release from a build run
 # GitHub release tagged v<version> (the version the build used).
 # If the release already exists it is left alone, unless "replace" is ticked (repairing a broken
 # upload). The app's updater reads this repo's
-# latest release, so the file ending in .base.exe must be present.
+# latest release, so the file ending in .x64.exe must be present. A copy named .base.exe is added
+# too, because copies already installed only look for that name (remove it once they have all updated).
 # The build starts this workflow itself; you can also run it by hand with a run ID.
 
 on:
@@ -68,13 +69,18 @@ jobs:
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-AK[0-9]+)?$ ]] || { echo "Bad version '$version'"; exit 1; }
           tag="v$version"
 
-          # GitHub turns "#" in file names into "." on upload; do it here so the names are known.
           mkdir -p upload
-          for f in installers/*; do
-            cp "$f" "upload/$(basename "$f" | tr '#' '.')"
-          done
+          cp installers/* upload/
+          # Runs from before the rename have .base.exe only; use it as the .x64.exe too.
+          if ! ls upload | grep -q '\.x64\.exe$'; then
+            base="$(ls upload | grep '\.base\.exe$' | head -n1 || true)"
+            [ -n "$base" ] || { echo "No .x64.exe or .base.exe found; the updater needs one."; exit 1; }
+          else
+            x64="$(ls upload | grep '\.x64\.exe$' | head -n1)"
+            # Legacy name for already-installed clients.
+            cp "upload/$x64" "upload/${x64%.x64.exe}.base.exe"
+          fi
           ls -l upload
-          ls upload | grep -q '\.base\.exe$' || { echo "No .base.exe found; the updater needs it."; exit 1; }
 
           if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             if [ "$REPLACE" != "true" ]; then

@@ -188,10 +188,11 @@ internal fun parseUpdateManifest(body: String, currentVersion: String, platform:
         it.string("platform").equals(platform, ignoreCase = true)
     }
     val releaseAsset = if (root.string("tag_name") != null) {
-        assets.firstOrNull {
-            val name = it.string("name").orEmpty()
-            name.endsWith(".base.exe", ignoreCase = true) ||
-                name.endsWith("#base.exe", ignoreCase = true)
+        // Current releases ship anilife-<version>.x64.exe. Older ones used .base.exe, and a release
+        // keeps a .base.exe copy so installed copies that only look for that name still update.
+        val names = listOf(".x64.exe", ".base.exe", "#base.exe")
+        names.firstNotNullOfOrNull { suffix ->
+            assets.firstOrNull { it.string("name").orEmpty().endsWith(suffix, ignoreCase = true) }
         }
     } else {
         null

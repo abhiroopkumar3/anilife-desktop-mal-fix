@@ -103,4 +103,40 @@ class UpdaterTest {
         assertEquals(42L, update?.sizeBytes)
         assertEquals(1_794_701_813L, update?.publishedAt)
     }
+
+    @Test
+    fun prefersTheX64ExeAndIgnoresOtherDownloads() {
+        val release = """
+            {
+              "tag_name": "v1.0.7",
+              "assets": [
+                {"name": "anilife-1.0.7.x64-portable.zip", "browser_download_url": "https://example.com/anilife-1.0.7.x64-portable.zip"},
+                {"name": "anilife-1.0.7.x64.msi", "browser_download_url": "https://example.com/anilife-1.0.7.x64.msi"},
+                {"name": "anilife-1.0.7.base.exe", "browser_download_url": "https://example.com/anilife-1.0.7.base.exe"},
+                {"name": "anilife-1.0.7.x64.exe", "browser_download_url": "https://example.com/anilife-1.0.7.x64.exe"}
+              ]
+            }
+        """.trimIndent()
+
+        val update = parseUpdateManifest(release, currentVersion = "1.0.6", platform = "windows")
+
+        assertEquals("https://example.com/anilife-1.0.7.x64.exe", update?.url)
+    }
+
+    @Test
+    fun fallsBackToTheBaseExeOfOlderReleases() {
+        val release = """
+            {
+              "tag_name": "v1.0.6",
+              "assets": [
+                {"name": "anilife-1.0.6.msi", "browser_download_url": "https://example.com/anilife-1.0.6.msi"},
+                {"name": "anilife-1.0.6.base.exe", "browser_download_url": "https://example.com/anilife-1.0.6.base.exe"}
+              ]
+            }
+        """.trimIndent()
+
+        val update = parseUpdateManifest(release, currentVersion = "1.0.5", platform = "windows")
+
+        assertEquals("https://example.com/anilife-1.0.6.base.exe", update?.url)
+    }
 }

@@ -1,7 +1,9 @@
 name: Build Windows installers
 
-# Builds the Windows installers (.msi and .exe, installed and portable) from the code on main and
-# uploads them as the artifact "Anilife-Windows-Installers" (kept 90 days).
+# Builds the 64-bit Windows downloads from the code on main: the setup wizard (.exe), the system-wide
+# and the per-user .msi, and a portable .zip. Uploads them as the artifact "Anilife-Windows-Installers"
+# (kept 90 days). Files are named anilife-<version>.x64.exe, .x64.msi, .x64-per-user.msi and
+# .x64-portable.zip.
 # On success it starts "Publish release from a build run", which tags and publishes the release.
 # The version comes from fork-version.properties (<base>-AK<revision>).
 #
@@ -162,55 +164,37 @@ jobs:
           "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "Building version $v"
 
-      # The base .exe is the Inno Setup wizard further down; only the .msi comes from Gradle here.
-      - name: Build base installer (.msi)
+      # The setup wizard (.exe) is built with Inno Setup further down; the two .msi files come from Gradle.
+      - name: Build the system-wide installer (.msi)
         run: |
           .\gradlew :app:packageMsi "-PappVersion=$env:VERSION" --no-daemon --no-configuration-cache
           New-Item -ItemType Directory -Force dist | Out-Null
           $bin = "app/build/compose/binaries/main"
-          Copy-Item (Get-ChildItem "$bin/msi/*.msi" | Select-Object -First 1) "dist/anilife-$env:VERSION#base.msi"
+          Copy-Item (Get-ChildItem "$bin/msi/*.msi" | Select-Object -First 1) "dist/anilife-$env:VERSION.x64.msi"
 
-      - name: Build portable .msi (no shortcuts, per-user, choose folder)
+      - name: Build the per-user installer (.msi, no shortcuts, per-user, choose folder)
         run: |
-          .\gradlew :app:packageMsi "-PappVersion=$env:VERSION" -Pportable=true --no-daemon --no-configuration-cache
+          .\gradlew :app:packageMsi "-PappVersion=$env:VERSION" -PperUser=true --no-daemon --no-configuration-cache
           $msi = Get-ChildItem "app/build/compose/binaries/main/msi/*.msi" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          Copy-Item $msi "dist/anilife-$env:VERSION#portable.msi"
+          Copy-Item $msi "dist/anilife-$env:VERSION.x64-per-user.msi"
 
-      # Portable .exe: a single self-extracting file wrapping the app image.
-      # Double-click -> unpacks to a temp folder -> launches AniLife. Nothing is installed.
-      - name: Build portable .exe (self-extracting)
+      # The app image is what the setup wizard packs and what the portable .zip holds. Unzip, run
+      # AniLife.exe, nothing is installed. The folder itself goes in the zip, so unzipping makes one
+      # AniLife folder instead of scattering files.
+      - name: Build the app image and the portable .zip
         run: |
           .\gradlew :app:createDistributable "-PappVersion=$env:VERSION" --no-daemon --no-configuration-cache
           $img = "app/build/compose/binaries/main/app/AniLife"
           if (-not (Test-Path "$img/AniLife.exe")) { throw "App image not found at $img" }
-
-          $sevenZip = "C:\Program Files\7-Zip"
-          & "$sevenZip\7z.exe" a -t7z -mx=5 sfx-payload.7z "$img\*"
-          if ($LASTEXITCODE -ne 0) { throw "7z failed" }
-
-          @'
-          ;!@Install@!UTF-8!
-          Title="AniLife"
-          GUIMode="1"
-          RunProgram="AniLife.exe"
-          ;!@InstallEnd@!
-          '@ -replace '(?m)^\s+', '' | Set-Content -Encoding utf8NoBOM sfx-config.txt
-
-          # Set the icon on the empty stub first. Rewriting resources after the payload is appended
-          # drops the appended data and leaves a tiny, useless exe.
-          Copy-Item "$sevenZip\7z.sfx" sfx-stub.sfx
-          & "$PWD/scripts/Set-ExeIcon.ps1" -Path "sfx-stub.sfx" -Icon "app/src/main/resources/anilife.ico"
-
-          $out = "dist/anilife-$env:VERSION#portable.exe"
-          $stream = [IO.File]::Create((Join-Path $PWD $out))
-          foreach ($f in @("sfx-stub.sfx", "sfx-config.txt", "sfx-payload.7z")) {
-            $bytes = [IO.File]::ReadAllBytes((Resolve-Path $f))
-            $stream.Write($bytes, 0, $bytes.Length)
-          }
-          $stream.Close()
+          $zip = Join-Path $PWD "dist/anilife-$env:VERSION.x64-portable.zip"
+          Push-Location (Split-Path $img -Parent)
+          & "C:\Program Files\7-Zip\7z.exe" a -tzip -mx=5 $zip "AniLife"
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) { throw "7z failed ($code)" }
 
       # The installer wizard: install folder, Start Menu folder, desktop shortcut, then a last page
-      # with Launch and a GitHub link. Packs the same app image the portable .exe uses.
+      # with Launch and a GitHub link. Packs the same app image the portable .zip holds.
       - name: Build installer wizard (.exe)
         run: |
           choco install innosetup --no-progress -y
@@ -218,17 +202,17 @@ jobs:
           if (-not (Test-Path $iscc)) { throw "Inno Setup compiler not found at $iscc" }
           $img = Join-Path $PWD "app/build/compose/binaries/main/app/AniLife"
           if (-not (Test-Path "$img/AniLife.exe")) { throw "App image not found at $img" }
-          & $iscc "/DVersion=$env:VERSION" "/DSourceDir=$img" "/O$PWD\dist" "/Fanilife-$env:VERSION#base" scripts/installer/anilife.iss
+          & $iscc "/DVersion=$env:VERSION" "/DSourceDir=$img" "/O$PWD\dist" "/Fanilife-$env:VERSION.x64" scripts/installer/anilife.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed ($LASTEXITCODE)" }
-          $wizard = Get-Item "dist/anilife-$env:VERSION#base.exe"
+          $wizard = Get-Item "dist/anilife-$env:VERSION.x64.exe"
           if ($wizard.Length -lt 50MB) { throw "Installer is only $($wizard.Length) bytes; the payload is missing." }
 
       - name: Write version manifest
         run: |
-          $exe = "dist/anilife-$env:VERSION#base.exe"
+          $exe = "dist/anilife-$env:VERSION.x64.exe"
           $asset = [ordered]@{
             platform = "windows"
-            url = "https://github.com/abhiroopkumar3/anilife-desktop-mal-fix/releases/download/v$env:VERSION/anilife-$env:VERSION.base.exe"
+            url = "https://github.com/abhiroopkumar3/anilife-desktop-mal-fix/releases/download/v$env:VERSION/anilife-$env:VERSION.x64.exe"
             sha256 = (Get-FileHash -Algorithm SHA256 -Path $exe).Hash
             size = [int64](Get-Item $exe).Length
           }
@@ -245,13 +229,8 @@ jobs:
       - name: List outputs
         run: |
           Get-ChildItem dist | ForEach-Object { "{0,8:N1} MB  {1}" -f ($_.Length/1MB), $_.Name }
-          $portable = Get-Item "dist/anilife-$env:VERSION#portable.exe"
-          if ($portable.Length -lt 50MB) { throw "Portable exe is only $($portable.Length) bytes; the payload is missing." }
-
-      # "#" in file names can trip up artifact uploads, and GitHub turns it into "." on release
-      # upload anyway, so use the final names (anilife-1.0.7.base.exe) from here on.
-      - name: Use dot names
-        run: Get-ChildItem dist | Rename-Item -NewName { $_.Name -replace '#', '.' }
+          $portable = Get-Item "dist/anilife-$env:VERSION.x64-portable.zip"
+          if ($portable.Length -lt 50MB) { throw "Portable zip is only $($portable.Length) bytes; the payload is missing." }
 
       - name: Upload installers
         uses: actions/upload-artifact@v4

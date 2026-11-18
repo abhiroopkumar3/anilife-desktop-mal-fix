@@ -50,13 +50,13 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
 }
 
-// Overridable from CI: -PappVersion=1.2.3 -Pportable=true
+// Overridable from CI: -PappVersion=1.2.3 -PperUser=true
 val defaultVersion = "1.0.7"
 val appVersion = providers.gradleProperty("appVersion").orNull ?: defaultVersion
 // Windows installers only accept x.y.z, so a fork suffix such as "-AK2" stays out of the package version.
 // This fork's release names come from fork-version.properties and arrive here as -PappVersion.
 val packageSemver = Regex("""^\d+\.\d+\.\d+""").find(appVersion)?.value ?: appVersion
-val portableBuild = providers.gradleProperty("portable").orNull == "true"
+val perUserBuild = providers.gradleProperty("perUser").orNull == "true"
 val generatedVersionResources = layout.buildDirectory.dir("generated/versionResources")
 
 val generateVersionProperties = tasks.register<WriteProperties>("generateVersionProperties") {
@@ -91,12 +91,12 @@ compose.desktop {
                 iconFile.set(file("src/main/resources/anilife-256.png"))
             }
             windows {
-                menu = !portableBuild
-                shortcut = !portableBuild
-                perUserInstall = portableBuild
-                dirChooser = portableBuild
+                menu = !perUserBuild
+                shortcut = !perUserBuild
+                perUserInstall = perUserBuild
+                dirChooser = perUserBuild
                 iconFile.set(file("src/main/resources/anilife.ico"))
-                upgradeUuid = if (portableBuild) {
+                upgradeUuid = if (perUserBuild) {
                     "b2c3d4e5-f6a7-4890-8bcd-ef0123456789"
                 } else {
                     "a1b2c3d4-e5f6-4789-9abc-def012345678"

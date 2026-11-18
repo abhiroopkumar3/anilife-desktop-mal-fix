@@ -15,7 +15,7 @@ Everything else is the original code, kept up to date by the sync below.
 
 ## Download
 
-Open the [Releases](../../releases) page and download `anilife-<version>.base.exe` (or the `.msi`, or the portable versions) from the latest release. The `.exe` is a setup wizard: it asks for the install folder, the Start Menu folder and a desktop shortcut, then offers to launch AniLife or open this page (both ticked). The Start Menu page has a "Don't create a Start Menu folder" box. Uninstalling asks whether to also delete all settings and data in `%LOCALAPPDATA%\AniLife` (ticked by default). Installing it over an older `.msi` install removes the `.msi` copy first; your settings and `.env` are kept. The portable `.exe` is a single self-extracting file that installs nothing. The installers are **not code-signed**, so Windows SmartScreen may warn. Choose "More info", then "Run anyway", if you trust the source.
+Open the [Releases](../../releases) page and download `anilife-<version>.x64.exe` (or one of the other files below) from the latest release. The `.exe` is a setup wizard: it asks for the install folder, the Start Menu folder and a desktop shortcut, then offers to launch AniLife or open this page (both ticked). The Start Menu page has a "Don't create a Start Menu folder" box. Uninstalling asks whether to also delete all settings and data in `%LOCALAPPDATA%\AniLife` (ticked by default). Installing it over an older `.msi` install removes the `.msi` copy first; your settings and `.env` are kept. The portable `.zip` installs nothing; unzip it and run `AniLife.exe`. The installers are **not code-signed**, so Windows SmartScreen may warn. Choose "More info", then "Run anyway", if you trust the source.
 
 ## How the automation works
 
@@ -24,7 +24,7 @@ Three workflows in `.github/workflows` run in a chain:
 | Workflow | What it does | When it runs |
 | --- | --- | --- |
 | **Sync from upstream** (`sync-upstream.yml`) | Merges the original repo's latest commits into `main`, keeping this fork's edits. It never takes workflow files or this README from upstream. Then it starts a build only if the version in `app/build.gradle.kts` has no release here yet. | Every Monday at 00:30 Austin time (America/Chicago), or manually |
-| **Build Windows installers** (`build-windows.yml`) | Runs the tests, builds the `.msi` and `.exe` installers (normal and portable) and uploads them as the artifact `Anilife-Windows-Installers` (kept 90 days). On success it starts the release workflow. | Started by the sync, or manually |
+| **Build Windows installers** (`build-windows.yml`) | Runs the tests, builds the `.x64.exe` setup wizard, the `.x64.msi` and `.x64-per-user.msi` installers and the `.x64-portable.zip` and uploads them as the artifact `Anilife-Windows-Installers` (kept 90 days). On success it starts the release workflow. | Started by the sync, or manually |
 | **Publish release from a build run** (`release-from-run.yml`) | Creates the tag `v<version>` and a GitHub release with the installers attached. If the release exists, it replaces the files. | Started by the build, or manually with a run ID |
 
 If the original and this fork changed the same lines, the sync stops, changes nothing and shows the
@@ -71,10 +71,15 @@ A Windows desktop client for watching anime, written in Kotlin with Compose Mult
 
 ## Install
 
-Builds are on the [Releases](../../releases) page. There are two kinds, each as an `.msi` and an `.exe`:
+Builds are on the [Releases](../../releases) page. All files are for 64-bit Windows (x64). They also run on Windows on ARM through its x64 emulation, but that is untested, and video playback may not work there.
 
-- The base build is a normal installer. It adds a Start Menu entry and a desktop shortcut, and you remove it from Windows Settings.
-- The portable build installs nothing system-wide. The portable `.msi` installs per user, with no shortcuts, into a folder you pick. The portable `.exe` is one file that unpacks to a temporary folder and starts the app.
+| File | What it is |
+| --- | --- |
+| `anilife-<version>.x64.exe` | Setup wizard. Adds a Start Menu entry and a desktop shortcut; remove it from Windows Settings. The app's updater uses this one. |
+| `anilife-<version>.x64.msi` | Normal system-wide installer, for managed deployments. |
+| `anilife-<version>.x64-per-user.msi` | Installs for the current user only, with no shortcuts, into a folder you pick. |
+| `anilife-<version>.x64-portable.zip` | Installs nothing. Unzip and run `AniLife\AniLife.exe`. |
+| `anilife-<version>.base.exe` | The same file as the `.x64.exe`, kept so older installed copies can still update. |
 
 The latest release is the stable build. The latest beta is the newest successful run of the Build workflow on `main`. Open the run and scroll to Artifacts. Beta builds are untested, and GitHub asks you to sign in before it lets you download from Actions. The files download as plain files, not zips.
 

@@ -1,0 +1,112 @@
+name: Test on Windows ARM
+
+# Installs the x64 setup wizard from a build run on a free Windows 11 ARM runner and checks that the
+# app starts there (x64 code running through Windows' emulation). It only checks install and launch;
+# it cannot check video playback. Kept in the repo so it can be run again for later builds.
+# Run it by hand. Leave run_id empty to use the newest successful Build run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "ID of the build run whose installer to test (empty = newest successful)"
+        required: false
+        default: ""
+      wait_seconds:
+        description: "How long the app must stay running after launch"
+        required: false
+        default: "30"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  arm:
+    runs-on: windows-11-arm
+    timeout-minutes: 20
+    steps:
+      - name: Find the build run
+        id: run
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          if (-not $env:RUN_ID) {
+            $env:RUN_ID = gh run list --repo "${{ github.repository }}" --workflow build-windows.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId'
+          }
+          if (-not $env:RUN_ID) { throw "No successful build run found." }
+          "id=$env:RUN_ID" >> $env:GITHUB_OUTPUT
+
+      - name: Download the installers
+        uses: actions/download-artifact@v4
+        with:
+          name: Anilife-Windows-Installers
+          path: installers
+          run-id: ${{ steps.run.outputs.id }}
+          github-token: ${{ github.token }}
+
+      - name: Install, launch and check
+        shell: pwsh
+        env:
+          WAIT: ${{ inputs.wait_seconds }}
+        run: |
+          New-Item -ItemType Directory -Force report | Out-Null
+          $log = "report/report.txt"
+          function Note($m) { $m | Tee-Object -FilePath $log -Append }
+
+          Note "Runner architecture: $env:PROCESSOR_ARCHITECTURE"
+          Note (Get-CimInstance Win32_OperatingSystem | ForEach-Object { "OS: $($_.Caption) $($_.Version)" })
+          Get-ChildItem installers | ForEach-Object { Note ("File: {0} ({1:N0} bytes)" -f $_.Name, $_.Length) }
+
+          $setup = Get-ChildItem installers -Filter "*.x64.exe" | Select-Object -First 1
+          if (-not $setup) { $setup = Get-ChildItem installers -Filter "*.base.exe" | Select-Object -First 1 }
+          if (-not $setup) { throw "No setup .exe in the build artifact." }
+          Note "Installing $($setup.Name)"
+          $p = Start-Process $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/LOG=$PWD\report\inno.log" -Wait -PassThru
+          Note "Installer exit code: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { throw "Installer failed." }
+
+          $exe = @("$env:ProgramFiles\AniLife\AniLife.exe", "${env:ProgramFiles(x86)}\AniLife\AniLife.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $exe) { throw "AniLife.exe not found after install." }
+          Note "Installed at $exe"
+
+          $app = Start-Process $exe -PassThru
+          Start-Sleep -Seconds ([int]$env:WAIT)
+          $app.Refresh()
+          $alive = -not $app.HasExited
+          Note "Still running after $env:WAIT s: $alive"
+
+          Add-Type @"
+          using System; using System.Runtime.InteropServices;
+          public static class Wow {
+            [DllImport("kernel32.dll")] public static extern bool IsWow64Process2(IntPtr h, out ushort proc, out ushort native);
+          }
+          "@
+          if ($alive) {
+            $proc = 0; $native = 0
+            [void][Wow]::IsWow64Process2($app.Handle, [ref]$proc, [ref]$native)
+            # 0x8664 = x64, 0xAA64 = ARM64, 0 = not emulated
+            Note ("Process machine: 0x{0:X}, native machine: 0x{1:X}" -f $proc, $native)
+          }
+
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $bmp.Save("report/screenshot.png")
+
+          Get-ChildItem "$env:LOCALAPPDATA\AniLife" -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 100 FullName | Out-File report/localappdata.txt
+
+          if ($alive) { Stop-Process -Id $app.Id -Force }
+          if (-not $alive) { Note "Exit code: $($app.ExitCode)"; throw "The app exited early." }
+          Note "RESULT: installed and launched"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arm-test-report
+          path: report
