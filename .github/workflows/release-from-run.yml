@@ -5,8 +5,8 @@ name: Publish release from a build run
 # If the release already exists it is left alone, unless "replace" is ticked (repairing a broken
 # upload). The app's updater reads this repo's
 # latest release, so the file ending in .x64.exe must be present. All four downloads (.x64.exe,
-# .x64.msi, .x64-per-user.msi, .x64-portable.zip) must be in the run, or nothing is tagged. A copy named .base.exe is added
-# too, because copies already installed only look for that name (remove it once they have all updated).
+# .x64.msi, .x64-per-user.msi, .x64-portable.zip) must be in the run, or nothing is tagged. Releases up to 1.0.6-AK5 also get a
+# .base.exe copy, because copies installed before the rename only look for that name.
 # The build starts this workflow itself; you can also run it by hand with a run ID.
 
 on:
@@ -82,8 +82,15 @@ jobs:
 
           mkdir -p upload
           cp installers/* upload/
-          # Legacy name: copies already installed only look for a .base.exe asset.
-          cp "installers/anilife-$version.x64.exe" "upload/anilife-$version.base.exe"
+          # Legacy name: copies installed before the rename only look for a .base.exe asset. Releases up to
+          # and including LEGACY_LAST carry a copy; later ones do not. Change LEGACY_LAST only to extend it.
+          LEGACY_LAST="1.0.6-AK5"
+          if [ "$(printf '%s\n%s\n' "$version" "$LEGACY_LAST" | sort -V | tail -n1)" = "$LEGACY_LAST" ]; then
+            cp "installers/anilife-$version.x64.exe" "upload/anilife-$version.base.exe"
+            echo "Added the legacy .base.exe copy ($version is not after $LEGACY_LAST)."
+          else
+            echo "No legacy .base.exe copy ($version is after $LEGACY_LAST)."
+          fi
           ls -l upload
 
           if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
