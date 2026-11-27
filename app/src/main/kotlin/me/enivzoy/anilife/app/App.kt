@@ -597,13 +597,7 @@ fun AniLifeApp(
                         notifier = releaseNotifier,
                         onOpenAnime = { navigateTo(Screen.Detail(it)) },
                     )
-                    Screen.Profile -> ProfileScreen(
-                        repository = repository,
-                        settings = settings,
-                        onSettingsChange = ::updateSettings,
-                        onOpenAnime = { navigateTo(Screen.Detail(it)) },
-                        onOpenAccount = { accountOpen = true },
-                    )
+                    Screen.Profile -> ProfileScreen(onOpenAnime = { navigateTo(Screen.Detail(it)) })
                     Screen.Downloads -> DownloadsScreen(
                         repository = repository,
                         settings = settings,
