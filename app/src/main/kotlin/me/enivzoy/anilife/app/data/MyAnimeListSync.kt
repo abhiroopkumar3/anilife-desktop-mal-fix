@@ -58,12 +58,13 @@ object MyAnimeListSync {
     val user = mutableUser.asStateFlow()
     private val mutableConfigured = MutableStateFlow(false)
     val configured = mutableConfigured.asStateFlow()
-    @Volatile private var clientId: String = ""
+    private const val DEFAULT_CLIENT_ID = "0e98545d5b71fdaad927ef2e8e388396"
+    @Volatile private var clientId: String = DEFAULT_CLIENT_ID
     @Volatile private var tokens: Tokens? = readTokens()
 
-    /** Reads the client ID again from the environment or the `.env` file. Empty until the viewer sets one. */
+    /** Reads the client ID again from the environment or the `.env` file, falling back to the built-in one. */
     fun configure() {
-        clientId = ApiCredentials.shared.read(ApiKey.MAL_CLIENT_ID)
+        clientId = ApiCredentials.shared.read(ApiKey.MAL_CLIENT_ID).ifBlank { DEFAULT_CLIENT_ID }
         mutableConfigured.value = clientId.isNotBlank()
     }
 
