@@ -14,6 +14,13 @@ import kotlin.test.assertTrue
 
 class DependencyManagerTest {
     @Test
+    fun configuringPathsBeforeAnythingIsDownloadedDoesNotFail() {
+        // First run: the mpv folder does not exist yet, and startup configures paths before setup runs.
+        val empty = Files.createTempDirectory("anilife-deps").resolve("bin").toFile()
+        DependencyManager(CoroutineScope(Dispatchers.Default), empty).configurePaths()
+    }
+
+    @Test
     fun usesWindowsUserAgent() {
         assertTrue(USER_AGENT.contains("Windows NT"))
         assertTrue(USER_AGENT.startsWith("Mozilla/"))

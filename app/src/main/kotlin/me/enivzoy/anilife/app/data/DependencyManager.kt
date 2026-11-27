@@ -324,7 +324,8 @@ class DependencyManager(
         return if (extension == "7z" || extension == "zip") ".$extension" else ".zip"
     }
 
-    private fun findLibrary(root: Path, name: String): Path? = Files.walk(root).use { paths ->
+    /** Null when [root] does not exist yet, as on a first run before the player is downloaded. */
+    private fun findLibrary(root: Path, name: String): Path? = if (!Files.isDirectory(root)) null else Files.walk(root).use { paths ->
         paths.filter { it.fileName.toString().equals(name, ignoreCase = true) }.findFirst().orElse(null)
     }
 
