@@ -1,6 +1,8 @@
 package me.enivzoy.anilife.app.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.ui.draw.rotate
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -109,7 +111,13 @@ data class WatchingItem(
 )
 
 @Composable
-fun ProfileScreen(onOpenAnime: (Long) -> Unit) {
+fun ProfileScreen(
+    repository: me.enivzoy.anilife.app.data.AniListRepository,
+    settings: me.enivzoy.anilife.app.data.AppSettings,
+    onSettingsChange: ((me.enivzoy.anilife.app.data.AppSettings) -> me.enivzoy.anilife.app.data.AppSettings) -> Unit,
+    onOpenAnime: (Long) -> Unit,
+    onOpenAccount: () -> Unit,
+) {
     val anilistUser by AniListSync.user.collectAsState()
     val anilistEntries by AniListSync.entries.collectAsState()
     val malUser by MyAnimeListSync.user.collectAsState()
@@ -184,36 +192,15 @@ fun ProfileScreen(onOpenAnime: (Long) -> Unit) {
         loadProfile()
     }
 
+    val scrollState = rememberScrollState()
     Box(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().verticalScroll(scrollState)) {
         when (val current = state) {
-            ProfileState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            ProfileState.Loading -> Box(Modifier.fillMaxWidth().height(320.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = AniLifeColors.Primary)
             }
 
-            ProfileState.Unlinked -> UnlinkedProfile(
-                malConfigured = malConfigured,
-                error = error,
-                onAniList = {
-                    try {
-                        AniListSync.beginAuth()
-                    } catch (failure: Throwable) {
-                        error = failure.message ?: "Couldn't open AniList sign-in."
-                    }
-                },
-                onMal = {
-                    scope.launch {
-                        error = null
-                        try {
-                            MyAnimeListSync.configure()
-                            MyAnimeListSync.connect()
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (failure: Throwable) {
-                            error = failure.message ?: "MyAnimeList sign-in failed."
-                        }
-                    }
-                },
-            )
+            ProfileState.Unlinked -> UnlinkedProfile(error = error)
 
             is ProfileState.Loaded -> LoadedProfile(
                 data = current.data,
@@ -248,49 +235,66 @@ fun ProfileScreen(onOpenAnime: (Long) -> Unit) {
                 },
             )
         }
+        // Outside the when, so signing in (which reloads the profile above) never tears this down mid-connect.
+        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+            OverrideAccordion(startOpen = state is ProfileState.Unlinked) {
+                me.enivzoy.anilife.app.screens.AccountsPanel(repository, settings, onSettingsChange, onOpenAccount)
+            }
+            Spacer(Modifier.height(32.dp))
+        }
+    }
+        PageScrollbar(scrollState, Modifier.align(Alignment.CenterEnd))
     }
 }
 
 @Composable
-private fun UnlinkedProfile(
-    malConfigured: Boolean,
-    error: String?,
-    onAniList: () -> Unit,
-    onMal: () -> Unit,
-) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(
-            Modifier.padding(32.dp).widthIn(max = 460.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .background(AniLifeColors.Card)
-                .border(1.dp, AniLifeColors.Border, RoundedCornerShape(18.dp))
-                .padding(28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+private fun UnlinkedProfile(error: String?) {
+    Column(
+        Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 40.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Your profile", color = AniLifeColors.Foreground, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+        Text(
+            "Connect an AniList or MyAnimeList account to see your stats and continue watching.",
+            color = AniLifeColors.MutedForeground,
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+        )
+        error?.let { Text(it, color = AniLifeColors.Destructive, fontSize = 12.sp) }
+    }
+}
+
+/** A collapsed section: the client ID and secret overrides, and each service's connect and sync controls. */
+@Composable
+private fun OverrideAccordion(startOpen: Boolean, content: @Composable () -> Unit) {
+    var open by remember { mutableStateOf(startOpen) }
+    Column(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(AniLifeColors.Card)
+            .border(1.dp, AniLifeColors.Border, RoundedCornerShape(14.dp)),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().clickable { open = !open }.padding(horizontal = 18.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Your profile", color = AniLifeColors.Foreground, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Text(
-                "Link an AniList or MyAnimeList account to see your stats and continue watching.",
-                color = AniLifeColors.MutedForeground,
-                fontSize = 13.sp,
-                lineHeight = 19.sp,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(4.dp))
-            ProfileButton("Link AniList", onClick = onAniList, modifier = Modifier.fillMaxWidth())
-            Text(
-                "After approving in your browser, paste the token in the AniList account settings.",
-                color = AniLifeColors.MutedForeground,
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(4.dp))
-            ProfileButton("Link MAL", onClick = onMal, enabled = malConfigured, modifier = Modifier.fillMaxWidth())
-            if (!malConfigured) {
-                Text("MyAnimeList client configuration is unavailable.", color = AniLifeColors.Destructive, fontSize = 11.sp)
+            Column(Modifier.weight(1f)) {
+                Text("Client override connections", color = AniLifeColors.Foreground, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Connect AniList and MyAnimeList, and set your own client ID and secret.",
+                    color = AniLifeColors.MutedForeground,
+                    fontSize = 12.sp,
+                )
             }
-            error?.let { Text(it, color = AniLifeColors.Destructive, fontSize = 12.sp, textAlign = TextAlign.Center) }
+            androidx.compose.material3.Icon(
+                androidx.compose.material.icons.Icons.Rounded.ExpandMore,
+                contentDescription = if (open) "Collapse" else "Expand",
+                tint = AniLifeColors.MutedForeground,
+                modifier = Modifier.rotate(if (open) 180f else 0f),
+            )
+        }
+        androidx.compose.animation.AnimatedVisibility(visible = open) {
+            Column(Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, bottom = 18.dp)) { content() }
         }
     }
 }
@@ -306,9 +310,7 @@ private fun LoadedProfile(
     onOpenProfile: (String) -> Unit,
     onLogout: () -> Unit,
 ) {
-    val scrollState = rememberScrollState()
-    Box(Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize().verticalScroll(scrollState)) {
+    Column(Modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxWidth().height(220.dp).background(AniLifeColors.SurfaceVariant)) {
             RemoteImage(
                 url = data.banner,
@@ -359,10 +361,8 @@ private fun LoadedProfile(
                 1 -> StatsTab(data)
                 2 -> ActivityTab()
             }
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(24.dp))
         }
-    }
-        PageScrollbar(scrollState, Modifier.align(Alignment.CenterEnd))
     }
 }
 

@@ -149,7 +149,7 @@ fun AnimeListActionsDialog(
             service == null -> {
                 Text(
                     "Your watchlist is kept on this PC with no account needed. Sign in to AniList or MyAnimeList on the " +
-                        "Accounts page for Watching, Paused and the rest.",
+                        "Profile page for Watching, Paused and the rest.",
                     color = AniLifeColors.MutedForeground, fontSize = 13.sp,
                 )
             }

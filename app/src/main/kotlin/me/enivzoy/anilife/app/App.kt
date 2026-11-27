@@ -82,7 +82,7 @@ import me.enivzoy.anilife.app.screens.ProvidersScreen
 import me.enivzoy.anilife.app.screens.ScheduleScreen
 import me.enivzoy.anilife.app.screens.SettingsScreen
 import me.enivzoy.anilife.app.screens.UpdateDialog
-import me.enivzoy.anilife.app.screens.MyAnimeListScreen
+import me.enivzoy.anilife.app.screens.ProfileScreen
 import me.enivzoy.anilife.app.screens.NotificationsScreen
 import me.enivzoy.anilife.app.data.MyAnimeListSync
 import me.enivzoy.anilife.app.data.AniListSync
@@ -597,7 +597,13 @@ fun AniLifeApp(
                         notifier = releaseNotifier,
                         onOpenAnime = { navigateTo(Screen.Detail(it)) },
                     )
-                    Screen.Profile -> MyAnimeListScreen(repository, settings, ::updateSettings, onOpenAccount = { accountOpen = true })
+                    Screen.Profile -> ProfileScreen(
+                        repository = repository,
+                        settings = settings,
+                        onSettingsChange = ::updateSettings,
+                        onOpenAnime = { navigateTo(Screen.Detail(it)) },
+                        onOpenAccount = { accountOpen = true },
+                    )
                     Screen.Downloads -> DownloadsScreen(
                         repository = repository,
                         settings = settings,

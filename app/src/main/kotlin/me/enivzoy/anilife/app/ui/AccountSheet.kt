@@ -93,7 +93,7 @@ import kotlin.math.roundToInt
 
 /*
  * The account sheet, as Android's AccountSheet.kt draws it behind the My List account pill (here the
- * account's row on the Accounts page opens it): banner
+ * account's row in the Profile page's connections section opens it): banner
  * and avatar, three headline totals, Overview / Stats / Activity, and the account's own actions at
  * the foot. The streak and activity grid and the MyAnimeList list that used to sit on the Accounts
  * page live here now. "Link a TV" is left out: the PC has no TV to pair (see PARITY.md).

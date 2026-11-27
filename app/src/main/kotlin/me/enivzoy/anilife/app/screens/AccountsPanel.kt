@@ -51,7 +51,8 @@ import me.enivzoy.anilife.app.ui.AniLifeColors
 import me.enivzoy.anilife.app.ui.PageScrollbar
 
 @Composable
-fun MyAnimeListScreen(
+/** Connect, sync and the client ID and secret values for both services. Lives in the Profile page's override section. */
+fun AccountsPanel(
     repository: AniListRepository,
     settings: me.enivzoy.anilife.app.data.AppSettings,
     onSettingsChange: ((me.enivzoy.anilife.app.data.AppSettings) -> me.enivzoy.anilife.app.data.AppSettings) -> Unit,
@@ -97,11 +98,7 @@ fun MyAnimeListScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 28.dp)) {
-        Text("Accounts", color = AniLifeColors.Foreground, fontSize = 30.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-        Text("Connect your tracking accounts to sync your list and watched progress.", color = AniLifeColors.MutedForeground, fontSize = 14.sp)
-        Spacer(Modifier.height(20.dp))
-
+    Column(Modifier.fillMaxWidth()) {
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(AniLifeColors.Card).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
