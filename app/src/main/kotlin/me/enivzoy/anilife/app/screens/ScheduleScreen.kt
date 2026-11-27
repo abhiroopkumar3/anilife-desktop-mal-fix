@@ -60,6 +60,8 @@ import me.enivzoy.anilife.app.ui.PageScrollbar
 import me.enivzoy.anilife.app.ui.RemoteImage
 import me.enivzoy.anilife.app.ui.Shimmer
 import me.enivzoy.anilife.app.ui.loadState
+import me.enivzoy.anilife.app.ui.RefreshHost
+import me.enivzoy.anilife.app.ui.RefreshOn
 import me.enivzoy.anilife.app.ui.parseAnimeColor
 import me.enivzoy.anilife.core.model.AiringEntry
 import me.enivzoy.anilife.core.model.AnimeCard
@@ -76,6 +78,7 @@ import java.util.Locale
 fun ScheduleScreen(
     repository: AniListRepository,
     onOpen: (Long) -> Unit,
+    refresh: RefreshHost,
 ) {
     var attempt by remember { mutableIntStateOf(0) }
     var state by remember { mutableStateOf<LoadState<List<AiringEntry>>>(LoadState.Loading) }
@@ -84,6 +87,12 @@ fun ScheduleScreen(
     LaunchedEffect(attempt) {
         state = LoadState.Loading
         state = loadState { repository.schedule() }
+    }
+
+    // Reloads the schedule and stays on the day that is selected, as Android's does.
+    RefreshOn(refresh) {
+        val result = loadState { repository.schedule() }
+        if (result !is LoadState.Loading) state = result
     }
 
     when (val current = state) {

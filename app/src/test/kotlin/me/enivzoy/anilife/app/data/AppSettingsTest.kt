@@ -1,4 +1,4 @@
-﻿package me.enivzoy.anilife.app.data
+package me.enivzoy.anilife.app.data
 
 import androidx.compose.ui.input.key.Key
 import java.io.File
@@ -11,6 +11,11 @@ import java.time.Instant
 import xyz.orbitary.perigee.activity.ActivityType
 
 class AppSettingsTest {
+    @Test
+    fun startupIntroIsOffByDefault() {
+        assertEquals(false, AppSettings().playIntro)
+    }
+
     @Test
     fun discordPresenceFormatsIdleMovieAndEpisodeActivities() {
         val startedAt = Instant.parse("2026-11-03T22:00:00Z")
@@ -116,7 +121,7 @@ class AppSettingsTest {
                     audio = "dub",
                     subtitleLanguage = "fr",
                     resumePlayback = false,
-                    playIntro = false,
+                    playIntro = true,
                     titleLanguage = "romaji",
                     discordPresenceEnabled = true,
                     discordApplicationId = "123456789012345678x",
@@ -145,7 +150,7 @@ class AppSettingsTest {
             assertEquals("dub", persisted.audio)
             assertEquals("fr", persisted.subtitleLanguage)
             assertEquals(false, persisted.resumePlayback)
-            assertEquals(false, persisted.playIntro)
+            assertEquals(true, persisted.playIntro)
             assertEquals("romaji", persisted.titleLanguage)
             assertEquals(true, persisted.discordPresenceEnabled)
             assertEquals("123456789012345678", persisted.discordApplicationId)
@@ -179,6 +184,48 @@ class AppSettingsTest {
             val store = AppSettingsStore(file)
             store.update { it.copy(subtitleLanguage = "unsupported") }
             assertEquals("en", AppSettingsStore(file).settings.value.subtitleLanguage)
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun refreshButtonPlacementDefaultsToTheLeftBarAndPersistsEachChoice() {
+        val root = Files.createTempDirectory("AniLife-settings-refresh")
+        try {
+            val file = root.resolve("settings.properties").toFile()
+            assertEquals("sidebar", AppSettingsStore(file).settings.value.refreshButtonPlacement)
+            for (placement in listOf("top-right", "bottom-right", "sidebar")) {
+                AppSettingsStore(file).update { it.copy(refreshButtonPlacement = placement) }
+                assertEquals(placement, AppSettingsStore(file).settings.value.refreshButtonPlacement)
+            }
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun anUnknownRefreshButtonPlacementFallsBackToTheLeftBar() {
+        val root = Files.createTempDirectory("AniLife-settings-refresh-bad")
+        try {
+            val file = root.resolve("settings.properties").toFile()
+            AppSettingsStore(file).update { it.copy(refreshButtonPlacement = "middle") }
+            assertEquals("sidebar", AppSettingsStore(file).settings.value.refreshButtonPlacement)
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun onlyEpisodesYouCanWatchIsOffByDefaultAsOnAndroidAndPersistsWhenSwitchedOn() {
+        val root = Files.createTempDirectory("AniLife-settings-continue")
+        try {
+            val file = root.resolve("settings.properties").toFile()
+            assertEquals(false, AppSettingsStore(file).settings.value.hideUnairedFromContinue)
+            AppSettingsStore(file).update { it.copy(hideUnairedFromContinue = true) }
+            assertEquals(true, AppSettingsStore(file).settings.value.hideUnairedFromContinue)
+            AppSettingsStore(file).update { it.copy(hideUnairedFromContinue = false) }
+            assertEquals(false, AppSettingsStore(file).settings.value.hideUnairedFromContinue)
         } finally {
             root.toFile().deleteRecursively()
         }

@@ -1,6 +1,7 @@
 ﻿package me.enivzoy.anilife.core.net
 
 import me.enivzoy.anilife.core.model.AiringEntry
+import me.enivzoy.anilife.core.model.AiringTime
 import me.enivzoy.anilife.core.model.AnimeCard
 import me.enivzoy.anilife.core.model.AnimeDetail
 import me.enivzoy.anilife.core.model.Home
@@ -67,6 +68,7 @@ class AniListClient(
     private val endpoint: String = ENDPOINT,
     private val cache: ResponseCache? = null,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val pacer: AniListPacer = AniListPacer.shared,
 ) {
     @Volatile
     var titleLanguage: String = "english"
@@ -401,11 +403,58 @@ class AniListClient(
             ?.firstNotNullOfOrNull { (it as? JsonObject)?.let { media -> parseCard(media, titleLanguage) } }
     }
 
-    /** Up to [MAX_LOOKUP_BATCH] titles by AniList id, in no particular order. Unknown ids are simply absent. */
-    suspend fun cardsByIds(ids: List<Long>): List<AnimeCard> = lookupCards("id_in", ids)
+    /**
+     * Airing times of just [ids] between [from] and [to] (epoch seconds), soonest first.
+     *
+     * A lookup by title rather than a sweep of the whole schedule: a fortnight of everything airing
+     * is far past the paging cap of [schedule], and a Continue Watching row only needs its own
+     * titles.
+     */
+    suspend fun airingTimes(ids: List<Long>, from: Long, to: Long): List<AiringTime> {
+        if (ids.isEmpty()) return emptyList()
+        val query = """
+            query (${'$'}page: Int, ${'$'}ids: [Int], ${'$'}from: Int, ${'$'}to: Int) {
+              Page(page: ${'$'}page, perPage: 50) {
+                pageInfo { hasNextPage }
+                airingSchedules(mediaId_in: ${'$'}ids, airingAt_greater: ${'$'}from, airingAt_lesser: ${'$'}to, sort: TIME) {
+                  airingAt episode mediaId
+                }
+              }
+            }
+        """.trimIndent()
+        val times = mutableListOf<AiringTime>()
+        for (page in 1..8) {
+            val data = execute(
+                query,
+                buildJsonObject {
+                    put("page", page)
+                    put("ids", buildJsonArray { ids.distinct().forEach { add(JsonPrimitive(it)) } })
+                    put("from", from)
+                    put("to", to)
+                },
+            )
+            val pageObj = data["Page"] as? JsonObject ?: break
+            pageObj["airingSchedules"].asArray()?.forEach { element ->
+                val schedule = element as? JsonObject ?: return@forEach
+                val mediaId = schedule.long("mediaId") ?: return@forEach
+                val airingAt = schedule.long("airingAt") ?: return@forEach
+                val episode = schedule.int("episode") ?: return@forEach
+                times += AiringTime(mediaId = mediaId, episode = episode, airingAt = airingAt)
+            }
+            if ((pageObj["pageInfo"] as? JsonObject)?.bool("hasNextPage") != true) break
+        }
+        return times.distinctBy { it.mediaId to it.episode }
+    }
 
-    /** Up to [MAX_LOOKUP_BATCH] titles by MyAnimeList id, in no particular order. Unknown ids are simply absent. */
-    suspend fun cardsByMalIds(malIds: List<Long>): List<AnimeCard> = lookupCards("idMal_in", malIds)
+    /** AniList cards for the given AniList ids, 50 to a request; unknown ids are simply absent. */
+    suspend fun cardsByIds(ids: List<Long>): List<AnimeCard> = lookupAll("id_in", ids)
+
+    /** AniList cards for the given MAL ids, 50 to a request; unknown ids are simply absent. */
+    suspend fun cardsByMalIds(malIds: List<Long>): List<AnimeCard> = lookupAll("idMal_in", malIds)
+
+    /** Any number of ids, looked up [MAX_LOOKUP_BATCH] at a time. Each batch can be served from the cache. */
+    private suspend fun lookupAll(filter: String, ids: List<Long>): List<AnimeCard> =
+        ids.distinct().chunked(MAX_LOOKUP_BATCH).flatMap { lookupCards(filter, it) }
 
     private suspend fun lookupCards(filter: String, ids: List<Long>): List<AnimeCard> {
         val batch = ids.distinct()
@@ -476,9 +525,8 @@ class AniListClient(
             .POST(HttpRequest.BodyPublishers.ofString(payload))
             .build()
 
-        val response = withContext(Dispatchers.IO) {
-            http.send(request, HttpResponse.BodyHandlers.ofString())
-        }
+        // Paced against the budget AniList last reported, with a 429 waited out and retried, as on Android.
+        val response = pacer.send(http, request)
 
         if (response.statusCode() == 429) {
             throw AniListException("AniList rate limit reached — try again in a minute.")

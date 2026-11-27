@@ -296,9 +296,10 @@ class DataTransferTest {
         val library = LocalLibraryStore(root.resolve("library.properties").toFile())
         val continueStore = ContinueStore(root.resolve("continue.properties").toFile())
         val repository = AniListRepository(client = aniList.client, library = library)
+        val customLists = CustomListStore(file = root.resolve("custom-lists.properties").toFile(), clock = { 7_000L })
         val transfer = DataTransfer(
             repository, continueStore, appVersion = { "test" }, now = { 5_000L },
-            accounts = accounts, syncSaved = { syncSaved },
+            accounts = accounts, syncSaved = { syncSaved }, customLists = customLists,
         )
         override fun close() {
             aniList.close()
@@ -307,6 +308,57 @@ class DataTransferTest {
     }
 
     private fun fixture() = Fixture(Files.createTempDirectory("AniLife-data"), FakeAniList())
+
+    private val listBackup = """
+    {"format": "anilili-backup", "version": 1,
+     "customLists": [
+        {"name": "Weekend", "createdAt": 42, "entries": [
+            {"anilistId": 101, "title": "First Show", "cover": null, "addedAt": 9},
+            {"anilistId": 102, "title": "#Hash Show", "cover": null, "addedAt": 8}]},
+        {"name": "  ", "entries": []}]}
+    """.trimIndent()
+
+    @Test
+    fun restoreAddsCustomListsWithTheirTitlesAndFullDetails() = fixture().use { f ->
+        val summary = runBlocking { f.transfer.restore(AppBackup.decode(listBackup), applySettings = {}) }
+
+        assertEquals(1, summary.customLists)
+        assertEquals("1 new list", summary.describe())
+        val list = f.customLists.lists.value.single()
+        assertEquals("Weekend", list.name)
+        assertEquals(42L, list.createdAt)
+        assertEquals(listOf(101L, 102L), list.entries.map { it.anime.id })
+        // Details came from AniList, and the order and save times from the file are kept.
+        assertEquals(1101L, list.entries.first().anime.malId)
+        assertEquals(listOf(9L, 8L), list.entries.map { it.addedAt })
+    }
+
+    @Test
+    fun restoringAListThePcAlreadyHasPoolsTitlesInsteadOfDoublingIt() = fixture().use { f ->
+        f.customLists.create("weekend")
+        runBlocking { f.transfer.restore(AppBackup.decode(listBackup), applySettings = {}) }
+        val again = runBlocking { f.transfer.restore(AppBackup.decode(listBackup), applySettings = {}) }
+
+        assertEquals(0, again.customLists)
+        val list = f.customLists.lists.value.single()
+        assertEquals("weekend", list.name)
+        assertEquals(listOf(101L, 102L), list.entries.map { it.anime.id })
+    }
+
+    @Test
+    fun aBackupWrittenHereCarriesCustomListsBackAndForth() = fixture().use { f ->
+        runBlocking { f.transfer.restore(AppBackup.decode(listBackup), applySettings = {}) }
+
+        val document = f.transfer.createBackup(AppSettings())
+        val reread = AppBackup.decode(AppBackup.encode(document))
+
+        assertEquals(1, reread.customListCount)
+        val list = reread.customLists.single()
+        assertEquals("Weekend", list.name)
+        assertEquals(42L, list.createdAt)
+        assertEquals(listOf(101L, 102L), list.entries.map { it.anilistId })
+        assertTrue("1 list" in reread.describe())
+    }
 
     @Test
     fun restoreFillsTheLibraryAndContinueWatchingFromAnAndroidBackup() = fixture().use { f ->
@@ -332,7 +384,10 @@ class DataTransferTest {
         assertEquals(600.0, rows.getValue(102).progress.position)
         assertEquals(900L, rows.getValue(101).updatedAt)
         // What the file held that this app has no place for is said out loud.
-        assertTrue(summary.notRestored.any { "custom list" in it })
+        // The Android file's one list carried no titles, but it is still a list and still arrives.
+        assertEquals(1, summary.customLists)
+        assertEquals(listOf("Favs"), f.customLists.lists.value.map { it.name })
+        assertTrue(summary.notRestored.none { "custom list" in it })
         assertTrue(summary.notRestored.any { "Android-only setting" in it })
         assertTrue(summary.notRestored.any { "login" in it })
         assertTrue(summary.warnings.isEmpty())

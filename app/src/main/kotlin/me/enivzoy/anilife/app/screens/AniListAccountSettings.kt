@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import me.enivzoy.anilife.app.data.AccountAdoption
 import me.enivzoy.anilife.app.data.AniListConnection
 import me.enivzoy.anilife.app.data.AniListRepository
 import me.enivzoy.anilife.app.data.AniListSync
@@ -52,7 +53,7 @@ import me.enivzoy.anilife.app.ui.PageScrollbar
 import me.enivzoy.anilife.app.ui.appEnter
 
 @Composable
-fun AniListAccountSettings(repository: AniListRepository) {
+fun AniListAccountSettings(repository: AniListRepository, onOpenAccount: () -> Unit = {}) {
     val user by AniListSync.user.collectAsState()
     val entries by AniListSync.entries.collectAsState()
     val syncStatus by AniListSync.status.collectAsState()
@@ -61,6 +62,7 @@ fun AniListAccountSettings(repository: AniListRepository) {
     var showTokenField by remember { mutableStateOf(false) }
     var tokenText by remember { mutableStateOf("") }
     var actionError by remember { mutableStateOf<String?>(null) }
+    var showApiDialog by remember { mutableStateOf(false) }
     var showImportReview by remember { mutableStateOf(false) }
     var importingId by remember { mutableStateOf<Long?>(null) }
 
@@ -68,7 +70,17 @@ fun AniListAccountSettings(repository: AniListRepository) {
 
     val remoteIds = remember(entries) { entries.mapTo(mutableSetOf()) { it.anime.id } }
     val localOnly = remember(localEntries, remoteIds) { localEntries.filterNot { it.id in remoteIds } }
+    var syncingNow by remember { mutableStateOf(false) }
     val connecting = syncStatus.connection == AniListConnection.CONNECTING || syncStatus.syncing
+
+    fun startAniListSignIn() {
+        try {
+            AniListSync.beginAuth()
+            showTokenField = true
+        } catch (failure: Throwable) {
+            actionError = failure.message ?: "Couldn't open AniList sign-in."
+        }
+    }
 
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
@@ -76,32 +88,47 @@ fun AniListAccountSettings(repository: AniListRepository) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Icon(Icons.Rounded.Person, contentDescription = null, tint = AniLifeColors.Primary)
-            Column(Modifier.weight(1f)) {
-                Text("AniList", color = AniLifeColors.Foreground, fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                Text(
-                    user?.name?.let { "Connected as $it" } ?: "Your AniList account is the synced library.",
-                    color = AniLifeColors.MutedForeground,
-                    fontSize = 12.sp,
+            val connected = user
+            if (connected != null) {
+                me.enivzoy.anilife.app.ui.AccountIdentity(
+                    name = connected.name,
+                    avatar = connected.avatar,
+                    subtitle = "Connected to AniList",
+                    onClick = onOpenAccount,
+                    modifier = Modifier.weight(1f),
                 )
+            } else {
+                Icon(Icons.Rounded.Person, contentDescription = null, tint = AniLifeColors.Primary)
+                Column(Modifier.weight(1f)) {
+                    Text("AniList", color = AniLifeColors.Foreground, fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    Text(
+                        "Your AniList account is the synced library.",
+                        color = AniLifeColors.MutedForeground,
+                        fontSize = 12.sp,
+                    )
+                }
             }
             if (user != null) {
                 OutlinedButton(
                     onClick = {
                         scope.launch {
                             actionError = null
+                            syncingNow = true
                             try {
-                                AniListSync.refreshList()
+                                // The whole window waits until the list has been read.
+                                me.enivzoy.anilife.app.data.AppBusy.hold { AniListSync.refreshList() }
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (failure: Throwable) {
                                 actionError = failure.message ?: "Couldn't refresh AniList."
+                            } finally {
+                                syncingNow = false
                             }
                         }
                     },
                     enabled = !connecting,
                 ) {
-                    if (connecting) CircularProgressIndicator(Modifier.width(16.dp), strokeWidth = 2.dp)
+                    if (syncingNow || connecting) me.enivzoy.anilife.app.ui.SpinningRefreshIcon(24.dp, androidx.compose.material3.LocalContentColor.current)
                     else Icon(Icons.Rounded.Refresh, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
                     Text("Sync now")
@@ -119,6 +146,7 @@ fun AniListAccountSettings(repository: AniListRepository) {
                     },
                 ) { Text("Disconnect") }
             }
+            me.enivzoy.anilife.app.ui.EditApiValuesButton(me.enivzoy.anilife.app.ui.ApiService.ANILIST) { showApiDialog = true }
         }
 
         if (user != null) {
@@ -169,7 +197,7 @@ fun AniListAccountSettings(repository: AniListRepository) {
             }
         } else {
             Text(
-                "Use the official implicit sign-in flow. AniLife never asks for an authorization code or client secret.",
+                "Use the official implicit sign-in flow. It needs only your client ID; the secret, if you save one, is kept but not used by this sign-in.",
                 color = AniLifeColors.MutedForeground,
                 fontSize = 12.sp,
                 lineHeight = 18.sp,
@@ -178,11 +206,11 @@ fun AniListAccountSettings(repository: AniListRepository) {
                 Button(
                     onClick = {
                         actionError = null
-                        try {
-                            AniListSync.beginAuth()
-                            showTokenField = true
-                        } catch (failure: Throwable) {
-                            actionError = failure.message ?: "Couldn't open AniList sign-in."
+                        // No client ID yet: ask for it first, and open the sign-in once it is saved.
+                        if (me.enivzoy.anilife.app.data.AniListConfig.clientId().isBlank()) {
+                            showApiDialog = true
+                        } else {
+                            startAniListSignIn()
                         }
                     },
                     enabled = !connecting,
@@ -217,7 +245,7 @@ fun AniListAccountSettings(repository: AniListRepository) {
                         scope.launch {
                             actionError = null
                             try {
-                                AniListSync.connect(tokenText)
+                                AccountAdoption.connectAniList(tokenText)
                                 tokenText = ""
                                 showTokenField = false
                             } catch (cancelled: CancellationException) {
@@ -235,6 +263,16 @@ fun AniListAccountSettings(repository: AniListRepository) {
             }
         }
         actionError?.let { Text(it, color = AniLifeColors.Destructive, fontSize = 12.sp) }
+    }
+
+    if (showApiDialog) {
+        me.enivzoy.anilife.app.ui.ApiCredentialsDialog(
+            service = me.enivzoy.anilife.app.ui.ApiService.ANILIST,
+            canConnect = user == null,
+            onSaved = {},
+            onConnect = { showApiDialog = false; startAniListSignIn() },
+            onDismiss = { showApiDialog = false },
+        )
     }
 
     if (showImportReview) {

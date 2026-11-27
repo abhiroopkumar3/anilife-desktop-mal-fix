@@ -76,9 +76,15 @@ data class AppSettings(
     val volume: Int = 100,
     val subtitleScale: Float = 1f,
     val aniListSubmitPercent: Int = 80,
-    /** Add titles saved by a restore or an import to the signed-in account's Plan to Watch. */
+    /** Keep saved titles and the account's Plan to Watch in step, and add titles saved by a restore or an import to it. */
     val syncSavedToAccount: Boolean = true,
+    /** Android's "Only episodes you can watch": hide a Continue Watching title until its next episode is out. Off by default, as there. */
+    val hideUnairedFromContinue: Boolean = false,
     val checkUpdatesOnLaunch: Boolean = true,
+    /** Poster details switched off on the Library page, as [PosterElement] names. */
+    val hiddenPosterElements: String = "",
+    /** MyAnimeList tags kept off the Library as lists, comma-separated (Android `hiddenMalTags`). */
+    val hiddenMalTags: String = "",
     val captionFont: String = "sans-serif",
     val captionFontFile: String = "",
     val buttonColor: String = "#87D66A",
@@ -91,11 +97,13 @@ data class AppSettings(
     val themeCss: String = "",
     val sidebarIconBackgroundEnabled: Boolean = false,
     val sidebarIconShape: String = "rounded",
+    /** Where the refresh button sits: "sidebar" (above Notifications, the default), "top-right" or "bottom-right". */
+    val refreshButtonPlacement: String = "sidebar",
     val sidebarIconsJoined: Boolean = false,
     val appFont: String = "SansSerif",
     val appFontFile: String = "",
     val downloadDirectory: String? = null,
-    val playIntro: Boolean = true,
+    val playIntro: Boolean = false,
     val titleLanguage: String = "english",
     val discordPresenceEnabled: Boolean = true,
     val highRefreshRateUi: Boolean = false,
@@ -169,6 +177,7 @@ class AppSettingsStore(private val file: File = settingsFile()) {
             aniListSubmitPercent = properties.getProperty("aniListSubmitPercent", "80")
                 .toIntOrNull()?.coerceIn(1, 100) ?: 80,
             syncSavedToAccount = properties.getProperty("syncSavedToAccount", "true").toBooleanStrictOrNull() ?: true,
+            hideUnairedFromContinue = properties.getProperty("hideUnairedFromContinue", "false").toBooleanStrictOrNull() ?: false,
             resumePlayback = properties.getProperty("resumePlayback", "true").toBooleanStrictOrNull() ?: true,
             playbackBufferSize = properties.getProperty("playbackBufferSize", "auto"),
             gpuAcceleration = properties.getProperty("gpuAcceleration")
@@ -182,6 +191,8 @@ class AppSettingsStore(private val file: File = settingsFile()) {
             volume = properties.getProperty("volume", "100").toIntOrNull() ?: 100,
             subtitleScale = properties.getProperty("subtitleScale", "1.0").toFloatOrNull() ?: 1f,
             checkUpdatesOnLaunch = properties.getProperty("checkUpdatesOnLaunch", "true").toBooleanStrictOrNull() ?: true,
+            hiddenPosterElements = properties.getProperty("hiddenPosterElements", ""),
+            hiddenMalTags = properties.getProperty("hiddenMalTags", ""),
             captionFont = properties.getProperty("captionFont", "sans-serif"),
             captionFontFile = properties.getProperty("captionFontFile", ""),
             buttonColor = properties.getProperty("buttonColor", "#87D66A"),
@@ -194,11 +205,12 @@ class AppSettingsStore(private val file: File = settingsFile()) {
             themeCss = properties.getProperty("themeCss", ""),
             sidebarIconBackgroundEnabled = properties.getProperty("sidebarIconBackgroundEnabled", "false").toBooleanStrictOrNull() ?: false,
             sidebarIconShape = properties.getProperty("sidebarIconShape", "rounded"),
+            refreshButtonPlacement = properties.getProperty("refreshButtonPlacement", "sidebar"),
             sidebarIconsJoined = properties.getProperty("sidebarIconsJoined", "false").toBooleanStrictOrNull() ?: false,
             appFont = properties.getProperty("appFont", "SansSerif"),
             appFontFile = properties.getProperty("appFontFile", ""),
             downloadDirectory = properties.getProperty("downloadDirectory")?.takeIf(String::isNotBlank),
-            playIntro = properties.getProperty("playIntro", "true").toBooleanStrictOrNull() ?: true,
+            playIntro = properties.getProperty("playIntro", "false").toBooleanStrictOrNull() ?: false,
             titleLanguage = properties.getProperty("titleLanguage") ?: if (properties.getProperty("preferEnglishTitles", "true").toBooleanStrictOrNull() ?: true) "english" else "romaji",
             discordPresenceEnabled = properties.getProperty("discordPresenceEnabled", "true").toBooleanStrictOrNull() ?: true,
             highRefreshRateUi = properties.getProperty("highRefreshRateUi", "false").toBooleanStrictOrNull() ?: false,
@@ -245,6 +257,7 @@ class AppSettingsStore(private val file: File = settingsFile()) {
             setProperty("autoplayNextEpisode", settings.autoplayNextEpisode.toString())
             setProperty("aniListSubmitPercent", settings.aniListSubmitPercent.toString())
             setProperty("syncSavedToAccount", settings.syncSavedToAccount.toString())
+            setProperty("hideUnairedFromContinue", settings.hideUnairedFromContinue.toString())
             setProperty("resumePlayback", settings.resumePlayback.toString())
             setProperty("playbackBufferSize", settings.playbackBufferSize)
             setProperty("gpuAcceleration", settings.gpuAcceleration)
@@ -257,6 +270,8 @@ class AppSettingsStore(private val file: File = settingsFile()) {
             setProperty("volume", settings.volume.toString())
             setProperty("subtitleScale", settings.subtitleScale.toString())
             setProperty("checkUpdatesOnLaunch", settings.checkUpdatesOnLaunch.toString())
+            setProperty("hiddenPosterElements", settings.hiddenPosterElements)
+            setProperty("hiddenMalTags", settings.hiddenMalTags)
             setProperty("captionFont", settings.captionFont)
             setProperty("captionFontFile", settings.captionFontFile)
             setProperty("buttonColor", settings.buttonColor)
@@ -269,6 +284,7 @@ class AppSettingsStore(private val file: File = settingsFile()) {
             setProperty("themeCss", settings.themeCss)
             setProperty("sidebarIconBackgroundEnabled", settings.sidebarIconBackgroundEnabled.toString())
             setProperty("sidebarIconShape", settings.sidebarIconShape)
+            setProperty("refreshButtonPlacement", settings.refreshButtonPlacement)
             setProperty("sidebarIconsJoined", settings.sidebarIconsJoined.toString())
             setProperty("appFont", settings.appFont)
             setProperty("appFontFile", settings.appFontFile)
@@ -331,6 +347,7 @@ class AppSettingsStore(private val file: File = settingsFile()) {
         sidebarIconBackgroundColor = validColor(sidebarIconBackgroundColor, "#1A261A"),
         themeCss = themeCss.take(20_000),
         sidebarIconShape = sidebarIconShape.takeIf { it in sidebarShapes } ?: "rounded",
+        refreshButtonPlacement = refreshButtonPlacement.takeIf { it in refreshPlacements } ?: "sidebar",
         appFont = appFont.takeIf { it in fontFamilies } ?: "SansSerif",
         themeMode = themeMode.takeIf { it in themeModes } ?: "DEFAULT",
         scrollbarVisibility = scrollbarVisibility.takeIf { it in scrollbarVisibilities } ?: "AUTOMATIC",
@@ -370,6 +387,7 @@ class AppSettingsStore(private val file: File = settingsFile()) {
         val captionAlignments = setOf("left", "center", "right")
         val captionPresets = setOf("classic", "boxed", "cinema", "high-contrast", "custom")
         val sidebarShapes = listOf("rounded", "circle", "rectangular")
+        val refreshPlacements = listOf("sidebar", "top-right", "bottom-right")
         private fun validColor(value: String, fallback: String): String =
             value.trim().uppercase().takeIf { it.matches(Regex("#[0-9A-F]{6}([0-9A-F]{2})?")) } ?: fallback
 

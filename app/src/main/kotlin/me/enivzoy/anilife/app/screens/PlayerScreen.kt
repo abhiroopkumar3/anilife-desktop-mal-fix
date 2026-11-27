@@ -63,6 +63,8 @@ import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Slider
 import me.enivzoy.anilife.app.data.ContinueStoreInstance
+import me.enivzoy.anilife.app.data.MalProgressSync
+import me.enivzoy.anilife.app.data.WatchActivityInstance
 import me.enivzoy.anilife.app.data.AnimeEpisode
 import me.enivzoy.anilife.app.data.AnimeVideoSource
 import me.enivzoy.anilife.app.data.AnimeSubtitleSource
@@ -71,7 +73,6 @@ import me.enivzoy.anilife.app.data.DiscordPlaybackInfo
 import me.enivzoy.anilife.app.data.Presence
 import me.enivzoy.anilife.app.data.PlayerAction
 import me.enivzoy.anilife.app.data.AniListSync
-import me.enivzoy.anilife.app.data.MyAnimeListSync
 import me.enivzoy.anilife.app.player.MpvPlaybackEngine
 import me.enivzoy.anilife.app.player.WakeLock
 import me.enivzoy.anilife.app.ui.appTween
@@ -275,6 +276,9 @@ playbackBufferSize = settings.playbackBufferSize,
             )
         }
     }
+    // Once an episode has been counted as watched the row has moved on (or been removed); the
+    // periodic saves below must not put it back.
+    var episodeCounted by remember(animeCard?.id, episode) { mutableStateOf(false) }
     val currentPos = rememberUpdatedState(positionSeconds)
     val currentDur = rememberUpdatedState(durationSeconds)
     val currentEp = rememberUpdatedState(episode)
@@ -283,6 +287,7 @@ playbackBufferSize = settings.playbackBufferSize,
         while (true) {
             kotlinx.coroutines.delay(10_000L)
             val ep = currentEp.value ?: continue
+            if (episodeCounted) continue
             ContinueStoreInstance.upsert(animeCard, ep, currentPos.value, currentDur.value)
         }
     }
@@ -290,6 +295,7 @@ playbackBufferSize = settings.playbackBufferSize,
         onDispose {
             val a = animeCard ?: return@onDispose
             val ep = currentEp.value ?: return@onDispose
+            if (episodeCounted) return@onDispose
             ContinueStoreInstance.upsert(a, ep, currentPos.value, currentDur.value)
         }
     }
@@ -409,13 +415,6 @@ playbackBufferSize = settings.playbackBufferSize,
         nextEpisode.value?.let(onEpisodeChange)
     }
 
-    LaunchedEffect(engine, engine?.hasEnded, animeCard?.malId, episode) {
-        if (engine?.hasEnded == true) {
-            val malId = animeCard?.malId ?: return@LaunchedEffect
-            val watched = episode?.toInt() ?: return@LaunchedEffect
-            runCatching { MyAnimeListSync.syncCompletedEpisode(malId, watched) }
-        }
-    }
     // AniList progress is submitted once the configured share of the episode has been watched
     // (settings.aniListSubmitPercent, default 80%); a finished episode always submits as well.
     var aniListSubmitted by remember(animeCard?.id, episode) { mutableStateOf(false) }
@@ -430,6 +429,7 @@ playbackBufferSize = settings.playbackBufferSize,
             if (duration > 0.0 && player.positionSeconds / duration * 100.0 >= settings.aniListSubmitPercent) {
                 aniListSubmitted = true
                 AniListSync.syncCompletedEpisode(anime, watched)
+                watched.takeIf { it % 1.0 == 0.0 }?.let { MalProgressSync.submit(anime, it.toInt()) }
             }
         }
     }
@@ -439,6 +439,28 @@ playbackBufferSize = settings.playbackBufferSize,
             val watched = episode ?: return@LaunchedEffect
             aniListSubmitted = true
             AniListSync.syncCompletedEpisode(anime, watched)
+            watched.takeIf { it % 1.0 == 0.0 }?.let { MalProgressSync.submit(anime, it.toInt()) }
+        }
+    }
+
+    // The watched threshold is the share the account submit already uses; at 100 only the end counts.
+    LaunchedEffect(engine, settings.aniListSubmitPercent, animeCard?.id, episode) {
+        val player = engine ?: return@LaunchedEffect
+        val anime = animeCard ?: return@LaunchedEffect
+        val watched = episode ?: return@LaunchedEffect
+        while (!episodeCounted) {
+            kotlinx.coroutines.delay(1000)
+            val duration = player.durationSeconds
+            val reached = player.hasEnded || (
+                settings.aniListSubmitPercent < 100 && duration > 0.0 &&
+                    player.positionSeconds / duration * 100.0 >= settings.aniListSubmitPercent
+                )
+            if (!reached) continue
+            episodeCounted = true
+            val total = anime.episodes?.takeIf { it > 0 }
+            ContinueStoreInstance.markEpisodeWatched(
+                anime.id, watched, nextEpisode.value, seriesCompleted = total != null && watched >= total,
+            )?.let { before -> WatchActivityInstance.recordEpisode(before, watched) }
         }
     }
 

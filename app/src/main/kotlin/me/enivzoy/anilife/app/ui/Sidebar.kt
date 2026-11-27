@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.VideoLibrary
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +45,9 @@ fun AppSidebar(
     onRandom: () -> Unit,
     onSearch: () -> Unit = { onNavigate(Screen.Browse) },
     modifier: Modifier = Modifier,
+    /** Set only when the refresh button is placed in this bar; [refreshShown] says if this screen has one. */
+    refresh: RefreshHost? = null,
+    refreshShown: Boolean = false,
 ) {
     BoxWithConstraints(
         modifier = modifier
@@ -90,6 +94,19 @@ fun AppSidebar(
 
             if (compact) Spacer(Modifier.height(6.dp)) else Spacer(Modifier.weight(1f))
 
+            if (refresh != null && refreshShown) {
+                // Only on screens that can refresh; elsewhere the slot is simply not there.
+                NavIcon(
+                    Icons.Rounded.Refresh,
+                    if (refresh.busy) "Refreshing" else "Refresh",
+                    selected = refresh.busy,
+                    size = iconSize,
+                    spin = refresh.busy,
+                ) {
+                    refresh.request()
+                }
+                Spacer(Modifier.height(gap))
+            }
             NavIcon(Icons.Rounded.Notifications, "Notifications", selected = current is Screen.Notifications, size = iconSize) {
                 onNavigate(Screen.Notifications)
             }
@@ -108,17 +125,20 @@ private fun NavIcon(
     label: String,
     selected: Boolean,
     size: androidx.compose.ui.unit.Dp = 40.dp,
+    spin: Boolean = false,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     GlassIconButton(
         onClick = onClick,
         icon = icon,
         contentDescription = label,
+        enabled = enabled,
         size = size,
         iconSize = 20.dp,
         selected = selected,
         accent = AniLifeColors.SidebarAccent,
         shape = RoundedCornerShape(10.dp),
+        spin = spin,
     )
 }
-

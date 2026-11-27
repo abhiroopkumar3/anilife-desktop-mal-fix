@@ -180,6 +180,8 @@ fun GlassIconButton(
     shape: Shape = RoundedCornerShape(11.dp),
     /** Keep a quiet glass base while idle. Needed over artwork where a flat icon would vanish. */
     alwaysGlass: Boolean = false,
+    /** Turn the icon, for a refresh that is running. */
+    spin: Boolean = false,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
@@ -219,7 +221,11 @@ fun GlassIconButton(
             .pointerHoverIcon(if (enabled) PointerIcon.Hand else PointerIcon.Default),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(iconSize))
+        if (spin) {
+            SpinningRefreshIcon(iconSize, tint, icon = icon)
+        } else {
+            Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(iconSize))
+        }
     }
 }
 

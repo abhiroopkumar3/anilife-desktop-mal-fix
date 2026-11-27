@@ -89,6 +89,8 @@ import me.enivzoy.anilife.app.ui.Resolution
 import me.enivzoy.anilife.app.ui.Shimmer
 import me.enivzoy.anilife.app.ui.cardMeta
 import me.enivzoy.anilife.app.ui.loadState
+import me.enivzoy.anilife.app.ui.RefreshHost
+import me.enivzoy.anilife.app.ui.RefreshOn
 import me.enivzoy.anilife.app.ui.parseAnimeColor
 import me.enivzoy.anilife.core.model.AnimeDetail
 import me.enivzoy.anilife.core.model.countdown
@@ -113,6 +115,7 @@ fun DetailScreen(
     onWatch: (AnimeDetail, Double?) -> Unit,
     queueManager: me.enivzoy.anilife.app.data.DownloadQueueManager? = null,
     settings: AppSettings? = null,
+    refresh: RefreshHost,
 ) {
     var attempt by remember(id) { mutableIntStateOf(0) }
     var state by remember(id) { mutableStateOf<LoadState<AnimeDetail>>(LoadState.Loading) }
@@ -136,6 +139,12 @@ fun DetailScreen(
     }
 
     val glassSource = rememberLayerBackdrop()
+    // This anime's record again, the page left up while it loads.
+    RefreshOn(refresh) {
+        val result = loadState { repository.detail(id) }
+        if (result !is LoadState.Loading) state = result
+    }
+
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().layerBackdrop(glassSource)) {
         when (val current = state) {
@@ -150,12 +159,8 @@ fun DetailScreen(
                     providers = providers,
                     onOpen = onOpen,
                     onWatch = { episode -> onWatch(current.value, episode) },
-                    inLibrary = if (aniListUser != null) {
-                        aniListEntries.any { it.anime.id == current.value.id }
-                    } else {
-                        library.any { it.id == current.value.id }
-                    },
-                    libraryUsesAniList = aniListUser != null,
+                    inLibrary = library.any { it.id == current.value.id },
+                    libraryUsesAniList = false,
                     libraryActionError = aniListActionError,
                     libraryActionPending = aniListActionPending,
                     onEditAniListEntry = if (remoteEntry != null && aniListUser != null) {
@@ -165,34 +170,15 @@ fun DetailScreen(
                     settings = settings,
                     onDownloadClick = { showDownloadDialog = true },
                     onToggleLibrary = {
-                    val remoteEntry = aniListEntries.firstOrNull { it.anime.id == current.value.id }
-                    if (aniListUser != null) {
-                        scope.launch {
-                            aniListActionPending = true
-                            aniListActionError = null
-                            try {
-                                if (remoteEntry != null) AniListSync.deleteEntry(remoteEntry)
-                                else AniListSync.addToList(current.value.toCard())
-                            } catch (cancelled: CancellationException) {
-                                throw cancelled
-                            } catch (failure: Throwable) {
-                                aniListActionError = failure.message ?: "Couldn't update your AniList list."
-                            } finally {
-                                aniListActionPending = false
-                            }
+                    try {
+                        if (library.any { it.id == current.value.id }) {
+                            repository.removeFromLibrary(current.value.id)
+                        } else {
+                            repository.addToLibrary(current.value.toCard())
                         }
                         null
-                    } else {
-                        try {
-                            if (library.any { it.id == current.value.id }) {
-                                repository.removeFromLibrary(current.value.id)
-                            } else {
-                                repository.addToLibrary(current.value.toCard())
-                            }
-                            null
-                        } catch (error: IOException) {
-                            error.message ?: "Check that AniLife can write to your app data folder."
-                        }
+                    } catch (error: IOException) {
+                        error.message ?: "Check that AniLife can write to your app data folder."
                     }
                 },
             )

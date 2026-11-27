@@ -42,10 +42,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import me.enivzoy.anilife.app.ui.onRightClick
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,7 +59,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.distinctUntilChanged
+import me.enivzoy.anilife.app.data.UpcomingAiring
+import me.enivzoy.anilife.app.data.UpcomingAiringMemory
+import me.enivzoy.anilife.app.data.AccountLibrary
+import me.enivzoy.anilife.app.data.hideFromContinueUntilAired
+import me.enivzoy.anilife.app.data.returnsToContinueAt
 import me.enivzoy.anilife.app.data.AniListRepository
 import me.enivzoy.anilife.app.data.AppSettings
 import me.enivzoy.anilife.app.data.AniListListStatus
@@ -75,11 +86,16 @@ import me.enivzoy.anilife.app.ui.Hero
 import me.enivzoy.anilife.app.ui.LoadState
 import me.enivzoy.anilife.app.ui.PageScrollbar
 import me.enivzoy.anilife.app.ui.PosterSkeleton
+import me.enivzoy.anilife.app.ui.RefreshHost
+import me.enivzoy.anilife.app.ui.RefreshOn
 import me.enivzoy.anilife.app.ui.Shimmer
 import me.enivzoy.anilife.app.ui.loadState
 import me.enivzoy.anilife.core.model.AnimeCard
 import me.enivzoy.anilife.core.model.AnimeDetail
 import me.enivzoy.anilife.core.model.Home
+
+/** How long a Home load may take before it counts as failed, the Android app's own 15 seconds. */
+private const val HOME_LOAD_TIMEOUT_MS = 15_000L
 
 @Composable
 fun HomeScreen(
@@ -88,9 +104,12 @@ fun HomeScreen(
     onSettingsChange: ((AppSettings) -> AppSettings) -> Unit,
     onOpen: (Long) -> Unit,
     onContinue: (me.enivzoy.anilife.app.data.ContinueEntry) -> Unit = { entry -> onOpen(entry.anime.id) },
+    refresh: RefreshHost,
     onContentReady: () -> Unit = {},
 ) {
     var attempt by remember { mutableStateOf(0) }
+    var scheduleReads by remember { mutableIntStateOf(0) }
+    var personalReads by remember { mutableIntStateOf(0) }
     var state by remember(repository) {
         mutableStateOf<LoadState<Home>>(repository.cachedHome()?.let { LoadState.Ready(it) } ?: LoadState.Loading)
     }
@@ -105,6 +124,29 @@ fun HomeScreen(
         }
     }
 
+    // The floating refresh button: live rows, with the page left up while they load. As on Android, a
+    // request that fails or runs past 15 seconds does not tear the page down for an error: Android
+    // serves its offline catalogue instead, and the rows already on screen are this app's equivalent.
+    // Only a screen with nothing to show reports the failure.
+    RefreshOn(refresh) { kotlinx.coroutines.coroutineScope {
+        // The account is pulled too, whatever the throttle says: the button is a request for live data.
+        launch { AccountLibrary.refresh() }
+        val result = withTimeoutOrNull(HOME_LOAD_TIMEOUT_MS) { loadState { repository.home(force = true) } }
+            ?: LoadState.Failed("Home request timed out. Check the connection and try again.")
+        when {
+            result is LoadState.Ready -> state = result
+            result is LoadState.Failed && state !is LoadState.Ready -> state = result
+        }
+        // The schedule behind "Only episodes you can watch" is read again too, as on Android, and so
+        // is the "Because you watched" row, which Android recomputes with every forced load.
+        scheduleReads++
+        personalReads++
+    } }
+
+    // Continue Watching is on this screen, so coming back to it is when the account is consulted, as on
+    // Android. The 30 second throttle absorbs the launch pull and quick tab-switching.
+    LaunchedEffect(Unit) { AccountLibrary.refreshIfDue() }
+
     LaunchedEffect(state) {
         if (state is LoadState.Ready || state is LoadState.Failed) onContentReady()
     }
@@ -114,7 +156,7 @@ fun HomeScreen(
         is LoadState.Failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             ErrorPanel(message = current.message, onRetry = { attempt++ })
         }
-        is LoadState.Ready -> HomeContent(current.value, repository, settings, onSettingsChange, onOpen, onContinue)
+        is LoadState.Ready -> HomeContent(current.value, repository, settings, onSettingsChange, onOpen, onContinue, scheduleReads, personalReads)
     }
 }
 
@@ -126,8 +168,54 @@ private fun HomeContent(
     onSettingsChange: ((AppSettings) -> AppSettings) -> Unit,
     onOpen: (Long) -> Unit,
     onContinue: (me.enivzoy.anilife.app.data.ContinueEntry) -> Unit,
+    scheduleReads: Int,
+    personalReads: Int,
 ) {
-    val continueEntries by ContinueStoreInstance.entries.collectAsState()
+    val storedContinue by ContinueStoreInstance.entries.collectAsState()
+    val hideUnaired = settings.hideUnairedFromContinue
+    // "Only episodes you can watch": a title is hidden, never removed, until its next episode is out.
+    var upcoming by remember { mutableStateOf<UpcomingAiring>(UpcomingAiringMemory.last) }
+    var nowSec by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
+    var dayReads by remember { mutableIntStateOf(0) }
+    val continueIds = remember(storedContinue) { storedContinue.map { it.anime.id }.distinct().sorted() }
+    // Read only while the setting is on, and only for the titles on the row. A failed read keeps what
+    // is already held, so a bad connection never hides or reveals rows by accident.
+    LaunchedEffect(hideUnaired, continueIds, scheduleReads, dayReads) {
+        if (!hideUnaired || continueIds.isEmpty()) {
+            upcoming = emptyMap()
+            return@LaunchedEffect
+        }
+        runCatching { repository.upcomingAirings(continueIds) }.onSuccess {
+            UpcomingAiringMemory.last = it
+            upcoming = it
+            nowSec = System.currentTimeMillis() / 1000
+        }
+    }
+    // Judge again at the moment the first hidden row's episode becomes watchable.
+    LaunchedEffect(hideUnaired, storedContinue, upcoming, nowSec) {
+        val returnsAt = if (hideUnaired) storedContinue.mapNotNull { returnsToContinueAt(it, upcoming, nowSec) }.minOrNull() else null
+        if (returnsAt != null) {
+            delay(((returnsAt - System.currentTimeMillis() / 1000) * 1000).coerceAtLeast(1_000L))
+            nowSec = System.currentTimeMillis() / 1000
+        }
+    }
+    // The window starts yesterday, so a window left open across midnight has to move on by a day.
+    LaunchedEffect(hideUnaired) {
+        if (!hideUnaired) return@LaunchedEffect
+        while (true) {
+            val zone = java.time.ZoneId.systemDefault()
+            val nextDay = java.time.LocalDate.now(zone).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+            delay((nextDay - System.currentTimeMillis()).coerceAtLeast(1_000L) + 1_000L)
+            dayReads++
+        }
+    }
+    val continueEntries = remember(storedContinue, hideUnaired, upcoming, nowSec) {
+        if (hideUnaired) storedContinue.filterNot { hideFromContinueUntilAired(it, upcoming, nowSec) } else storedContinue
+    }
+    var continueMenu by remember { mutableStateOf<me.enivzoy.anilife.app.data.ContinueEntry?>(null) }
+    continueMenu?.let { row ->
+        ContinueActionsDialog(entry = row, onOpenDetails = { onOpen(row.anime.id) }, onDismiss = { continueMenu = null })
+    }
     val libraryEntries by repository.library.entries.collectAsState()
     val aniListEntries by AniListSync.entries.collectAsState()
     LaunchedEffect(aniListEntries) {
@@ -160,13 +248,18 @@ private fun HomeContent(
 
     var becauseSeed by remember { mutableStateOf<AnimeCard?>(null) }
     var becauseItems by remember { mutableStateOf<List<AnimeCard>>(emptyList()) }
-    LaunchedEffect(libraryEntries) {
+    LaunchedEffect(libraryEntries, personalReads) {
         val seed = libraryEntries.firstOrNull()
-        becauseSeed = seed
-        becauseItems = if (seed != null) {
-            runCatching { repository.detail(seed.id).recommendations.take(12) }.getOrDefault(emptyList())
+        // A failed read keeps the row that is showing, as Android's personal rows do: a bonus on top of
+        // Home must not blink out because AniList hiccuped.
+        val found = if (seed != null) {
+            runCatching { repository.detail(seed.id).recommendations.take(12) }.getOrNull()
         } else {
             emptyList()
+        }
+        if (found != null || seed?.id != becauseSeed?.id) {
+            becauseSeed = seed
+            becauseItems = found.orEmpty()
         }
     }
 
@@ -211,12 +304,14 @@ private fun HomeContent(
                                 modifier = Modifier.padding(top = 12.dp),
                             ) {
                                 items(continueEntries, key = { "${it.anime.id}-${it.updatedAt}" }) { entry ->
-                                    ContinueCard(
-                                        entry = entry,
-                                        onResume = { e -> onContinue(e) },
-                                        onDetails = onOpen,
-                                        onRemove = { id -> ContinueStoreInstance.remove(id) },
-                                    )
+                                    Box(Modifier.onRightClick { continueMenu = entry }) {
+                                        ContinueCard(
+                                            entry = entry,
+                                            onResume = { e -> onContinue(e) },
+                                            onDetails = onOpen,
+                                            onRemove = { id -> ContinueStoreInstance.remove(id) },
+                                        )
+                                    }
                                 }
                             }
                             Spacer(Modifier.height(38.dp))

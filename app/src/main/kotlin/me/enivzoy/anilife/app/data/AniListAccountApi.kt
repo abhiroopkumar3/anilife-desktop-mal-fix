@@ -6,7 +6,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -62,6 +64,10 @@ data class AniListListEntry(
     val progress: Int,
     val score: Double,
     val updatedAt: Long,
+    /** AniList's "only in my custom lists" flag. */
+    val hidden: Boolean = false,
+    /** The custom lists the title is in. */
+    val customLists: List<String> = emptyList(),
 )
 
 data class ViewerProfile(
@@ -75,8 +81,13 @@ data class ViewerProfile(
     val statuses: Map<String, Int>,
 )
 
+/** One title's custom lists to write; [create] makes an entry that is on no status list. */
+data class CustomListWrite(val mediaId: Long, val lists: List<String>, val create: Boolean = false)
+
+private const val CUSTOM_LIST_BATCH_SIZE = 20
+
 internal class AniListAccountApi(
-    private val request: suspend (String, String, JsonObject) -> JsonObject = ::networkRequest,
+    internal val request: suspend (String, String, JsonObject) -> JsonObject = ::networkRequest,
 ) {
     suspend fun viewer(token: String): AniListUser {
         val data = request(token, VIEWER_QUERY, buildJsonObject {})
@@ -137,6 +148,155 @@ internal class AniListAccountApi(
             page++
         } while (hasNextPage)
         return result.distinctBy(AniListListEntry::entryId)
+    }
+
+    /** The account's activity per day, as AniList's own profile heatmap draws it. Empty when unreadable. */
+    suspend fun activityHistory(token: String, userId: Long): Map<Long, Int> =
+        parseActivityHistory(request(token, ACTIVITY_QUERY, buildJsonObject { put("id", userId) }))
+
+    /** The viewer's banner and anime totals, as Android's `AniListClient.viewer` reads them. */
+    suspend fun profileStats(token: String): AccountStats {
+        val viewer = request(token, ACCOUNT_STATS_QUERY, buildJsonObject {})["Viewer"] as? JsonObject ?: return AccountStats()
+        val anime = ((viewer["statistics"] as? JsonObject)?.get("anime")) as? JsonObject
+        return AccountStats(
+            banner = viewer.string("bannerImage"),
+            titles = anime?.int("count") ?: 0,
+            episodes = anime?.int("episodesWatched") ?: 0,
+            minutesWatched = anime?.long("minutesWatched") ?: 0L,
+            meanScore = anime?.double("meanScore") ?: 0.0,
+        )
+    }
+
+    // ---- the card menu's writes, as Android's AniListClient makes them ----
+
+    /** One entry's status, count, rewatch count and dates, read by title. Null when it is not on the list. */
+    suspend fun snapshot(token: String, mediaId: Long): ListSnapshot? {
+        val data = request(token, SNAPSHOT_QUERY, buildJsonObject { put("mediaId", mediaId) })
+        val entry = ((data["Media"] as? JsonObject)?.get("mediaListEntry")) as? JsonObject ?: return null
+        fun date(name: String): ListDate? {
+            val obj = entry[name] as? JsonObject ?: return null
+            val year = obj.int("year") ?: return null
+            return ListDate(year, obj.int("month"), obj.int("day"))
+        }
+        return ListSnapshot(
+            entryId = entry.long("id") ?: return null,
+            status = entry.string("status") ?: return null,
+            progress = entry.int("progress") ?: 0,
+            repeat = entry.int("repeat") ?: 0,
+            startedAt = date("startedAt"),
+            completedAt = date("completedAt"),
+        )
+    }
+
+    private fun confirmedRepeat(data: JsonObject, requested: Int) {
+        val confirmed = ((data["SaveMediaListEntry"] as? JsonObject)?.int("repeat"))
+        check(confirmed == requested) { "AniList confirmed repeat ${confirmed ?: "missing"} after requesting $requested" }
+    }
+
+    /** Move a title to another standard list, keeping its progress and score; see [planRewatchMove]. */
+    suspend fun moveStatus(token: String, mediaId: Long, status: String) {
+        val current = if (status == "REPEATING" || status == "COMPLETED") snapshot(token, mediaId) else null
+        val rewatch = planRewatchMove(current?.status, current?.repeat ?: 0, status)
+        val (declarations, arguments, extra) = rewatchArguments(current.takeIf { rewatch.touchesRewatch }, rewatch.repeat)
+        val progressDeclaration = if (rewatch.resetProgress) ", \$progress: Int" else ""
+        val progressArgument = if (rewatch.resetProgress) ", progress: \$progress" else ""
+        val mutation = """
+            mutation (${'$'}mediaId: Int, ${'$'}status: MediaListStatus$progressDeclaration$declarations) {
+              SaveMediaListEntry(mediaId: ${'$'}mediaId, status: ${'$'}status, hiddenFromStatusLists: false$progressArgument$arguments) {
+                id status progress repeat
+              }
+            }
+        """
+        val data = request(token, mutation, buildJsonObject {
+            put("mediaId", mediaId)
+            put("status", status)
+            if (rewatch.resetProgress) put("progress", 0)
+            extra.forEach { (name, value) -> put(name, value) }
+        })
+        rewatch.repeat?.let { confirmedRepeat(data, it) }
+    }
+
+    /** Mark every episode watched in one write: full progress plus Completed. A null total writes the status alone. */
+    suspend fun markWatched(token: String, mediaId: Long, totalEpisodes: Int?) {
+        val current = snapshot(token, mediaId)
+        val rewatch = planRewatchMove(current?.status, current?.repeat ?: 0, "COMPLETED")
+        val (declarations, arguments, extra) = rewatchArguments(current.takeIf { rewatch.touchesRewatch }, rewatch.repeat)
+        val progressDeclaration = if (totalEpisodes != null) ", \$progress: Int" else ""
+        val progressArgument = if (totalEpisodes != null) ", progress: \$progress" else ""
+        val mutation = """
+            mutation (${'$'}mediaId: Int, ${'$'}status: MediaListStatus$progressDeclaration$declarations) {
+              SaveMediaListEntry(mediaId: ${'$'}mediaId, status: ${'$'}status, hiddenFromStatusLists: false$progressArgument$arguments) {
+                id status progress repeat
+              }
+            }
+        """
+        val data = request(token, mutation, buildJsonObject {
+            put("mediaId", mediaId)
+            put("status", "COMPLETED")
+            totalEpisodes?.let { put("progress", it) }
+            extra.forEach { (name, value) -> put(name, value) }
+        })
+        rewatch.repeat?.let { confirmedRepeat(data, it) }
+    }
+
+    /** The viewer's own score out of ten, written as `scoreRaw` so it means the same in any score format. */
+    suspend fun setScore(token: String, mediaId: Long, score: Int) {
+        val mutation = """
+            mutation (${'$'}mediaId: Int, ${'$'}scoreRaw: Int) {
+              SaveMediaListEntry(mediaId: ${'$'}mediaId, scoreRaw: ${'$'}scoreRaw) { id score(format: POINT_10_DECIMAL) }
+            }
+        """
+        val data = request(token, mutation, buildJsonObject {
+            put("mediaId", mediaId)
+            put("scoreRaw", aniListScoreRaw(score))
+        })
+        val confirmed = (data["SaveMediaListEntry"] as? JsonObject)?.double("score")
+        check(confirmed != null && kotlin.math.abs(confirmed - score) < 0.05) {
+            "AniList confirmed score ${confirmed ?: "missing"} after requesting $score"
+        }
+    }
+
+    /** Set the episode count to exactly [progress], lower as well as higher; the status stays. */
+    suspend fun setProgress(token: String, mediaId: Long, progress: Int) {
+        val mutation = """
+            mutation (${'$'}mediaId: Int, ${'$'}progress: Int) {
+              SaveMediaListEntry(mediaId: ${'$'}mediaId, progress: ${'$'}progress) { id progress }
+            }
+        """
+        val data = request(token, mutation, buildJsonObject {
+            put("mediaId", mediaId)
+            put("progress", progress)
+        })
+        val confirmed = (data["SaveMediaListEntry"] as? JsonObject)?.int("progress")
+        check(confirmed == progress) { "AniList confirmed ${confirmed ?: "missing"} watched episodes after requesting $progress" }
+    }
+
+    /** Playback's write: the new count, plus a status or a finished rewatch when the plan says so. */
+    suspend fun pushProgress(token: String, mediaId: Long, update: ProgressUpdate, current: ListSnapshot?) {
+        val (declarations, arguments, extra) = rewatchArguments(current.takeIf { update.repeat != null }, update.repeat)
+        val statusDeclaration = if (update.status != null) ", \$status: MediaListStatus" else ""
+        // Starting a title filed away in a custom list is the viewer putting it on Watching.
+        val statusArgument = if (update.status != null) ", status: \$status, hiddenFromStatusLists: false" else ""
+        val mutation = """
+            mutation (${'$'}mediaId: Int, ${'$'}progress: Int$statusDeclaration$declarations) {
+              SaveMediaListEntry(mediaId: ${'$'}mediaId, progress: ${'$'}progress$statusArgument$arguments) {
+                id progress status repeat
+              }
+            }
+        """
+        val data = request(token, mutation, buildJsonObject {
+            put("mediaId", mediaId)
+            put("progress", update.progress)
+            update.status?.let { put("status", it) }
+            extra.forEach { (name, value) -> put(name, value) }
+        })
+        update.repeat?.let { confirmedRepeat(data, it) }
+    }
+
+    /** Take a title off the list whatever its status. False when there was nothing to delete. */
+    suspend fun deleteByMedia(token: String, mediaId: Long): Boolean {
+        val current = snapshot(token, mediaId) ?: return false
+        return delete(token, current.entryId)
     }
 
     suspend fun entry(token: String, userId: Long, mediaId: Long): AniListListEntry? {
@@ -201,6 +361,79 @@ internal class AniListAccountApi(
             progress = json.int("progress")?.coerceAtLeast(0) ?: 0,
             score = json.double("score")?.coerceAtLeast(0.0) ?: 0.0,
             updatedAt = json.long("updatedAt") ?: 0L,
+            hidden = json.boolean("hiddenFromStatusLists") ?: false,
+            customLists = parseAniListCustomLists(json["customLists"]),
+        )
+    }
+
+    /** The names of the account's custom anime lists, empty ones included. */
+    suspend fun customListNames(token: String): List<String> {
+        val data = request(token, CUSTOM_LIST_NAMES_QUERY, buildJsonObject {})
+        val names = (((data["Viewer"] as? JsonObject)?.get("mediaListOptions") as? JsonObject)
+            ?.get("animeList") as? JsonObject)?.get("customLists") as? JsonArray
+        return names?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.orEmpty()
+    }
+
+    /**
+     * Make the account's custom anime lists exactly [names], in that order. AniList has no create or
+     * rename call: the names are one field on the list settings, written whole, and a name dropped
+     * from it takes the list away from every entry that was in it.
+     */
+    suspend fun setCustomListNames(token: String, names: List<String>): List<String> {
+        val data = request(
+            token,
+            SET_CUSTOM_LIST_NAMES_MUTATION,
+            buildJsonObject { put("names", buildJsonArray { names.forEach { add(it) } }) },
+        )
+        val confirmed = ((((data["UpdateUser"] as? JsonObject)?.get("mediaListOptions") as? JsonObject)
+            ?.get("animeList") as? JsonObject)?.get("customLists") as? JsonArray)
+        return confirmed?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull } ?: names
+    }
+
+    /**
+     * Write which custom lists each title is in, several titles to a request. A title the account has
+     * no entry for is created as Planning *hidden from the status lists*, so it appears in its custom
+     * list and nowhere else: the viewer filed it, they did not plan it.
+     */
+    suspend fun saveCustomListMemberships(token: String, writes: List<CustomListWrite>) {
+        writes.chunked(CUSTOM_LIST_BATCH_SIZE).forEach { batch ->
+            val declarations = batch.indices.joinToString { index -> "\$id$index: Int, \$lists$index: [String]" }
+            val fields = batch.withIndex().joinToString("\n") { (index, write) ->
+                val create = if (write.create) ", status: PLANNING, hiddenFromStatusLists: true" else ""
+                "set$index: SaveMediaListEntry(mediaId: \$id$index, customLists: \$lists$index$create) { id }"
+            }
+            val variables = buildJsonObject {
+                batch.forEachIndexed { index, write ->
+                    put("id$index", write.mediaId)
+                    put("lists$index", buildJsonArray { write.lists.forEach { add(it) } })
+                }
+            }
+            request(token, "mutation ($declarations) {\n$fields\n}", variables)
+        }
+    }
+
+    /** Delete list entries by *entry* id, several to a request. */
+    suspend fun deleteEntries(token: String, entryIds: List<Long>) {
+        entryIds.distinct().chunked(CUSTOM_LIST_BATCH_SIZE).forEach { batch ->
+            val declarations = batch.indices.joinToString { index -> "\$id$index: Int!" }
+            val fields = batch.indices.joinToString("\n") { index ->
+                "delete$index: DeleteMediaListEntry(id: \$id$index) { deleted }"
+            }
+            val variables = buildJsonObject { batch.forEachIndexed { index, id -> put("id$index", id) } }
+            request(token, "mutation ($declarations) {\n$fields\n}", variables)
+        }
+    }
+
+    /** Tuck a Planning entry into its custom lists only, or bring it back onto Planning. */
+    suspend fun setHiddenFromStatusLists(token: String, mediaId: Long, hidden: Boolean) {
+        request(
+            token,
+            """
+            mutation (${'$'}mediaId: Int, ${'$'}hidden: Boolean) {
+              SaveMediaListEntry(mediaId: ${'$'}mediaId, hiddenFromStatusLists: ${'$'}hidden) { id }
+            }
+            """.trimIndent(),
+            buildJsonObject { put("mediaId", mediaId); put("hidden", hidden) },
         )
     }
 
@@ -245,7 +478,7 @@ internal class AniListAccountApi(
         """
 
         const val ENTRY_FIELDS = """
-            id status progress score updatedAt
+            id status progress score updatedAt hiddenFromStatusLists customLists(asArray: true)
             media { $MEDIA_FIELDS }
         """
 
@@ -268,6 +501,42 @@ internal class AniListAccountApi(
     }
   }
 }"""
+
+        const val CUSTOM_LIST_NAMES_QUERY = """
+            query { Viewer { mediaListOptions { animeList { customLists } } } }
+        """
+
+        const val SET_CUSTOM_LIST_NAMES_MUTATION = """
+            mutation (${'$'}names: [String]) {
+              UpdateUser(animeListOptions: { customLists: ${'$'}names }) {
+                mediaListOptions { animeList { customLists } }
+              }
+            }
+        """
+
+        const val SNAPSHOT_QUERY = """
+            query (${'$'}mediaId: Int) {
+              Media(id: ${'$'}mediaId, type: ANIME) {
+                mediaListEntry {
+                  id status progress repeat
+                  startedAt { year month day } completedAt { year month day }
+                }
+              }
+            }
+        """
+
+        const val ACTIVITY_QUERY = """
+            query (${'$'}id: Int) { User(id: ${'$'}id) { stats { activityHistory { date amount } } } }
+        """
+
+        const val ACCOUNT_STATS_QUERY = """
+            query {
+              Viewer {
+                bannerImage
+                statistics { anime { count episodesWatched minutesWatched meanScore } }
+              }
+            }
+        """
 
         const val VIEWER_QUERY = """
             query {
@@ -336,9 +605,11 @@ internal class AniListAccountApi(
                     .header("Authorization", "Bearer $token")
                     .POST(HttpRequest.BodyPublishers.ofString(json.encodeToString(JsonObject.serializer(), payload)))
                     .build()
+                // Same budget, pacing and 429 retry as every other AniList call in the app.
                 val response = ResourceTracker.networkOpened(httpRequest.uri().host).use {
-                    http.send(httpRequest, HttpResponse.BodyHandlers.ofString())
+                    me.enivzoy.anilife.core.net.AniListPacer.shared.send(http, httpRequest)
                 }
+                if (response.statusCode() == 429) error("AniList rate limit reached — try again in a minute.")
                 parseGraphQlResponse(response.statusCode(), response.body())
             }
 

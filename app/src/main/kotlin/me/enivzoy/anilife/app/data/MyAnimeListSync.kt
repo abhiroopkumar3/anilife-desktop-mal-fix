@@ -58,19 +58,12 @@ object MyAnimeListSync {
     val user = mutableUser.asStateFlow()
     private val mutableConfigured = MutableStateFlow(false)
     val configured = mutableConfigured.asStateFlow()
-    @Volatile private var clientId: String = DEFAULT_CLIENT_ID
-    private const val DEFAULT_CLIENT_ID = "0e98545d5b71fdaad927ef2e8e388396"
+    @Volatile private var clientId: String = ""
     @Volatile private var tokens: Tokens? = readTokens()
 
+    /** Reads the client ID again from the environment or the `.env` file. Empty until the viewer sets one. */
     fun configure() {
-        val fromEnvironment = System.getenv("MAL_CLIENT_ID")?.trim().orEmpty()
-        val fromFile = runCatching {
-            val envFile = File(System.getProperty("user.dir"), ".env")
-            envFile.readLines().firstOrNull { it.trimStart().startsWith("MAL_CLIENT_ID=") }
-                ?.substringAfter('=')?.trim()?.trim('"', '\'')
-        }.getOrNull().orEmpty()
-        val resolved = fromEnvironment.ifBlank { fromFile }.ifBlank { DEFAULT_CLIENT_ID }
-        clientId = resolved.take(128)
+        clientId = ApiCredentials.shared.read(ApiKey.MAL_CLIENT_ID)
         mutableConfigured.value = clientId.isNotBlank()
     }
 
@@ -116,6 +109,7 @@ object MyAnimeListSync {
     }
 
     suspend fun disconnect() = mutex.withLock {
+        CustomListStoreInstance.onAccountLeft()
         tokens = null
         mutableUser.value = null
         tokenFile().delete()
@@ -151,16 +145,134 @@ object MyAnimeListSync {
         check(confirmed == "plan_to_watch") { "MyAnimeList confirmed ${confirmed ?: "no status"} after asking for plan_to_watch." }
     }
 
-    suspend fun syncCompletedEpisode(malId: Long, watched: Int) = mutex.withLock {
-        val current = tokens ?: return@withLock
-        val token = accessToken(current)
-        val body = "num_watched_episodes=${encode(watched.toString())}"
-        val request = HttpRequest.newBuilder(URI.create("$API/anime/$malId/my_list_status"))
+    /**
+     * The whole MAL list the way Android reads it: every page, with episode totals, rewatch flag,
+     * update time and tags. Capped at 50 pages so a bad `next` link cannot loop forever.
+     */
+    suspend fun rows(): List<MalListRow> = mutex.withLock {
+        val token = accessToken(tokens ?: error("Connect a MyAnimeList account first."))
+        val rows = mutableListOf<MalListRow>()
+        var url: String? = "$API/users/@me/animelist?fields=${encode(MAL_LIST_FIELDS)}&limit=1000&nsfw=true"
+        var pages = 0
+        while (url != null && pages < 50) {
+            val request = HttpRequest.newBuilder(URI.create(url))
+                .header("Authorization", "Bearer $token")
+                .GET().build()
+            val response = withContext(Dispatchers.IO) { http.send(request, HttpResponse.BodyHandlers.ofString()) }
+            check(response.statusCode() in 200..299) { "MyAnimeList list request failed (${response.statusCode()})." }
+            val (page, next) = parseMalListPage(response.body())
+            rows += page
+            url = next
+            pages++
+        }
+        rows
+    }
+
+    /** Mirror the Save button on MAL: see [malSavedPush]. */
+    suspend fun syncSaved(malId: Long, saved: Boolean) = mutex.withLock {
+        val token = accessToken(tokens ?: error("Connect a MyAnimeList account first."))
+        val get = HttpRequest.newBuilder(URI.create("$API/anime/$malId?fields=my_list_status"))
+            .header("Authorization", "Bearer $token").GET().build()
+        val status = requestJson(get)["my_list_status"]?.jsonObject?.get("status")?.jsonPrimitive?.contentOrNull
+        when (malSavedPush(saved, status)) {
+            SavedPush.ADD_PLANNING -> {
+                val patch = HttpRequest.newBuilder(URI.create("$API/anime/$malId/my_list_status"))
+                    .header("Authorization", "Bearer $token")
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .method("PATCH", HttpRequest.BodyPublishers.ofString("status=plan_to_watch")).build()
+                requestJson(patch)
+            }
+            SavedPush.DELETE -> {
+                val delete = HttpRequest.newBuilder(URI.create("$API/anime/$malId/my_list_status"))
+                    .header("Authorization", "Bearer $token").DELETE().build()
+                val response = withContext(Dispatchers.IO) { http.send(delete, HttpResponse.BodyHandlers.ofString()) }
+                check(response.statusCode() in 200..299) { "MyAnimeList: delete failed (HTTP ${response.statusCode()})." }
+            }
+            else -> Unit
+        }
+    }
+
+    /** Take a title off the signed-in MAL list, whatever its status. */
+    suspend fun removeEntry(malId: Long) = mutex.withLock {
+        val token = accessToken(tokens ?: error("Connect a MyAnimeList account first."))
+        val delete = HttpRequest.newBuilder(URI.create("$API/anime/$malId/my_list_status"))
+            .header("Authorization", "Bearer $token").DELETE().build()
+        val response = withContext(Dispatchers.IO) { http.send(delete, HttpResponse.BodyHandlers.ofString()) }
+        check(response.statusCode() in 200..299 || response.statusCode() == 404) {
+            "MyAnimeList: delete failed (HTTP ${response.statusCode()})."
+        }
+    }
+
+    /** The entry plus MyAnimeList's own episode count, the figure a progress write is measured against. */
+    suspend fun animeStatus(malId: Long): MalAnimeStatus = mutex.withLock {
+        val token = accessToken(tokens ?: error("Connect a MyAnimeList account first."))
+        animeStatusLocked(token, malId)
+    }
+
+    private suspend fun animeStatusLocked(token: String, malId: Long): MalAnimeStatus {
+        val fields = "my_list_status{status,score,num_episodes_watched,is_rewatching,num_times_rewatched,updated_at,tags},num_episodes"
+        val get = HttpRequest.newBuilder(URI.create("$API/anime/$malId?fields=${encode(fields)}"))
+            .header("Authorization", "Bearer $token").GET().build()
+        return parseMalAnimeStatus(requestJson(get))
+    }
+
+    /** Upsert status, count, score or rewatch fields, then check MyAnimeList did what was asked. */
+    suspend fun writeEntry(malId: Long, write: MalWrite): MalEntryStatus = mutex.withLock {
+        val token = accessToken(tokens ?: error("Connect a MyAnimeList account first."))
+        val body = listOfNotNull(
+            write.progress?.let { "num_watched_episodes" to it.toString() },
+            write.status?.let { "status" to it },
+            write.isRewatching?.let { "is_rewatching" to it.toString() },
+            write.score?.let { "score" to it.toString() },
+            write.numTimesRewatched?.let { "num_times_rewatched" to it.toString() },
+        ).toTypedArray()
+        write.score?.let { require(it in 0..10) { "A MyAnimeList score is 0 to 10, not $it" } }
+        val patch = HttpRequest.newBuilder(URI.create("$API/anime/$malId/my_list_status"))
             .header("Authorization", "Bearer $token")
             .header("Content-Type", "application/x-www-form-urlencoded")
-            .method("PATCH", HttpRequest.BodyPublishers.ofString(body))
-            .build()
-        requestJson(request)
+            .method("PATCH", HttpRequest.BodyPublishers.ofString(form(*body))).build()
+        val confirmed = parseMalEntryStatus(requestJson(patch))
+        malWriteMismatch(write, confirmed)?.let { error(it) }
+        confirmed
+    }
+
+    /**
+     * Give a MyAnimeList entry exactly [tags]. MAL cannot hold a title with no status, so one it does
+     * not have yet is added as Plan to Watch, the one status that claims nothing was watched.
+     */
+    suspend fun setTags(malId: Long, tags: List<String>, create: Boolean) = mutex.withLock {
+        val token = accessToken(tokens ?: error("Connect a MyAnimeList account first."))
+        val body = listOfNotNull(
+            "status" to "plan_to_watch".takeIf { create },
+            "tags" to tags.joinToString(","),
+        ).mapNotNull { (k, v) -> v?.let { k to it } }.toTypedArray()
+        val patch = HttpRequest.newBuilder(URI.create("$API/anime/$malId/my_list_status"))
+            .header("Authorization", "Bearer $token")
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .method("PATCH", HttpRequest.BodyPublishers.ofString(form(*body))).build()
+        requestJson(patch)
+    }
+
+    /** The entry's current status, for a move that depends on it (a rewatch). Null when not listed. */
+    suspend fun entryOf(malId: Long): MalEntryStatus? = animeStatus(malId).entry
+
+    /** The account's totals for the account sheet; MyAnimeList has no banner. Null when it will not say. */
+    suspend fun profileStats(): AccountStats? {
+        val current = tokens ?: return null
+        return runCatching {
+            kotlinx.coroutines.withTimeoutOrNull(8_000L) {
+                val token = mutex.withLock { accessToken(current) }
+                val request = HttpRequest.newBuilder(URI.create("$API/users/@me?fields=anime_statistics"))
+                    .header("Authorization", "Bearer $token").GET().build()
+                val stats = requestJson(request)["anime_statistics"] as? kotlinx.serialization.json.JsonObject
+                fun number(name: String) = (stats?.get(name) as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull?.toDoubleOrNull()
+                AccountStats(
+                    titles = number("num_items")?.toInt() ?: 0,
+                    minutesWatched = ((number("num_days_watched") ?: 0.0) * 1440).toLong(),
+                    meanScore = number("mean_score") ?: 0.0,
+                )
+            }
+        }.getOrNull()
     }
 
     private suspend fun userRequest(token: String): MyAnimeListUser {

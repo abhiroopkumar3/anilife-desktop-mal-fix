@@ -20,6 +20,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import me.enivzoy.anilife.app.ui.blockInput
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -49,6 +51,15 @@ import androidx.compose.ui.unit.sp
 import java.awt.Desktop
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+import java.nio.file.Path
+import me.enivzoy.anilife.app.data.AccountAdoption
+import me.enivzoy.anilife.app.data.AccountLibrary
+import me.enivzoy.anilife.app.data.CustomListHooks
+import me.enivzoy.anilife.app.data.CustomListStoreInstance
+import me.enivzoy.anilife.app.data.hiddenTagNames
+import me.enivzoy.anilife.app.data.hiddenTagSet
+import me.enivzoy.anilife.app.data.listKey
+import me.enivzoy.anilife.app.data.MalProgressSync
 import me.enivzoy.anilife.app.data.AniListRepository
 import me.enivzoy.anilife.app.data.AnimeVideoProviders
 import me.enivzoy.anilife.app.data.DiscordOAuth
@@ -71,10 +82,12 @@ import me.enivzoy.anilife.app.screens.ProvidersScreen
 import me.enivzoy.anilife.app.screens.ScheduleScreen
 import me.enivzoy.anilife.app.screens.SettingsScreen
 import me.enivzoy.anilife.app.screens.UpdateDialog
-import me.enivzoy.anilife.app.screens.ProfileScreen
+import me.enivzoy.anilife.app.screens.MyAnimeListScreen
 import me.enivzoy.anilife.app.screens.NotificationsScreen
 import me.enivzoy.anilife.app.data.MyAnimeListSync
 import me.enivzoy.anilife.app.data.AniListSync
+import me.enivzoy.anilife.app.ui.RefreshButton
+import me.enivzoy.anilife.app.ui.RefreshHost
 import me.enivzoy.anilife.app.data.Updater
 import me.enivzoy.anilife.app.data.UpdateState
 import me.enivzoy.anilife.app.data.UpdateException
@@ -140,6 +153,17 @@ fun AniLifeApp(
     val backStack = remember { mutableStateListOf<Screen>() }
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
     var homeLoaded by remember { mutableStateOf(false) }
+    val refresh = remember { RefreshHost() }
+    val aniListUser by AniListSync.user.collectAsState()
+    val malUser by MyAnimeListSync.user.collectAsState()
+    // Where the floating refresh button shows: the screens that load something to reload. Library only
+    // with an account connected, since a signed-out list has nothing to pull. Never over the player,
+    // Watch or Settings, so it cannot cover their controls.
+    val showRefresh = when (screen) {
+        Screen.Home, Screen.Browse, Screen.Schedule, is Screen.Detail -> true
+        Screen.Library -> aniListUser != null || malUser != null
+        else -> false
+    }
     var playerFullscreen by remember { mutableStateOf(false) }
     var isPipMode by remember { mutableStateOf(false) }
     val consumedWatchAutoPlays = remember { mutableStateListOf<Long>() }
@@ -246,9 +270,25 @@ fun AniLifeApp(
     LaunchedEffect(Unit) {
         MemoryProfiler.start(this)
         Updater.reportPreviousInstall()
+        // A blank .env with the three keys, made once so there is a file to fill in. Never overwrites one.
+        me.enivzoy.anilife.app.data.ApiCredentials.shared.ensureFile()
         AniListSync.restore()
         MyAnimeListSync.configure()
         MyAnimeListSync.restore()
+        AccountLibrary.repository = repository
+        AccountLibrary.syncSavedEnabled = { settingsStore.settings.value.syncSavedToAccount }
+        CustomListHooks.hiddenMalTags = { hiddenTagSet(settingsStore.settings.value.hiddenMalTags) }
+        CustomListHooks.revealMalTag = { tag ->
+            settingsStore.update { it.copy(hiddenMalTags = hiddenTagNames(hiddenTagSet(it.hiddenMalTags).filterNot { t -> listKey(t) == listKey(tag) })) }
+        }
+        val pushScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+        repository.onSaveChanged = { anime, saved -> pushScope.launch { AccountLibrary.saveToggled(anime, saved) } }
+        repository.onBulkSaved = { pushScope.launch { AccountLibrary.pushSaved() } }
+        AccountAdoption.settleAfterRestore()
+        AccountLibrary.retryPending()
+        AccountLibrary.refreshIfDue()
+        CustomListStoreInstance.pushPending()
+        MalProgressSync.drain()
         DiscordOAuth.restore()
     }
     DisposableEffect(Unit) {
@@ -300,6 +340,8 @@ fun AniLifeApp(
     }
 
     var picking by remember { mutableStateOf(false) }
+    val appBusyHolds by me.enivzoy.anilife.app.data.AppBusy.holds.collectAsState()
+    val appBusy = appBusyHolds > 0
     var pickError by remember { mutableStateOf<String?>(null) }
     val mpvLibrary = remember { runCatching { Mpv.defaultLibraryPath() }.getOrNull() }
     var showIntro by remember { mutableStateOf(settings.playIntro) }
@@ -441,11 +483,21 @@ fun AniLifeApp(
     }
 
     var paletteOpen by remember { mutableStateOf(false) }
+    var accountOpen by remember { mutableStateOf(false) }
+    // The account the lists follow: AniList or MyAnimeList, whichever is the active one.
+    val accountService = me.enivzoy.anilife.app.data.serviceToKeep(
+        aniListUser != null, malUser != null, null,
+    )
+    val accountName = if (accountService == me.enivzoy.anilife.app.data.ListService.ANILIST) aniListUser?.name else malUser?.name
+    val accountAvatar = if (accountService == me.enivzoy.anilife.app.data.ListService.ANILIST) aniListUser?.avatar else malUser?.picture
 
     Box(
         Modifier.fillMaxSize()
             .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown &&
+                // While a sync, restore, import or random pick runs, the keyboard does nothing.
+                if (appBusy || picking) {
+                    true
+                } else if (event.type == KeyEventType.KeyDown &&
                     (event.isCtrlPressed || event.isMetaPressed) &&
                     event.key == Key.K
                 ) {
@@ -463,6 +515,8 @@ fun AniLifeApp(
                 onNavigate = ::navigateTo,
                 onRandom = ::pickRandom,
                 onSearch = { paletteOpen = true },
+                refresh = if (settings.refreshButtonPlacement == "sidebar") refresh else null,
+                refreshShown = showRefresh,
             )
         }
 
@@ -509,18 +563,22 @@ fun AniLifeApp(
                                 }
                             }
                         },
+                        refresh = refresh,
                         onContentReady = { homeLoaded = true },
                     )
                     Screen.Browse -> BrowseScreen(
                         repository = repository,
                         settings = settings,
                         onOpen = { navigateTo(Screen.Detail(it)) },
+                        refresh = refresh,
                     )
-                    Screen.Schedule -> ScheduleScreen(repository = repository, onOpen = { navigateTo(Screen.Detail(it)) })
+                    Screen.Schedule -> ScheduleScreen(repository = repository, onOpen = { navigateTo(Screen.Detail(it)) }, refresh = refresh)
                     Screen.Library -> LibraryScreen(
                         repository = repository,
+                        hiddenPosterElements = settings.hiddenPosterElements,
                         onOpen = { navigateTo(Screen.Detail(it)) },
                         onBrowse = { navigateTo(Screen.Browse) },
+                        refresh = refresh,
                     )
                     Screen.Settings -> SettingsScreen(
                         settings = settings,
@@ -539,7 +597,7 @@ fun AniLifeApp(
                         notifier = releaseNotifier,
                         onOpenAnime = { navigateTo(Screen.Detail(it)) },
                     )
-                    Screen.Profile -> ProfileScreen(onOpenAnime = { navigateTo(Screen.Detail(it)) })
+                    Screen.Profile -> MyAnimeListScreen(repository, settings, ::updateSettings, onOpenAccount = { accountOpen = true })
                     Screen.Downloads -> DownloadsScreen(
                         repository = repository,
                         settings = settings,
@@ -558,6 +616,7 @@ fun AniLifeApp(
                         onWatch = { detail, episode -> navigateTo(Screen.Watch(detail, episode)) },
                         queueManager = downloadQueue,
                         settings = settings,
+                        refresh = refresh,
                     )
                     is Screen.Watch -> AnimeWatchScreen(
                         detail = target.detail,
@@ -651,6 +710,10 @@ fun AniLifeApp(
                 }
                 }
             }
+            if (showRefresh && settings.refreshButtonPlacement != "sidebar") {
+                val corner = if (settings.refreshButtonPlacement == "top-right") Alignment.TopEnd else Alignment.BottomEnd
+                RefreshButton(refresh, Modifier.align(corner).padding(24.dp))
+            }
         }
     }
         if (showIntro) IntroOverlay(homeReady = homeLoaded, onFinished = { showIntro = false })
@@ -660,7 +723,9 @@ fun AniLifeApp(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(AniLifeColors.Scrim.copy(alpha = 0.35f)),
+                .background(AniLifeColors.Scrim.copy(alpha = 0.35f))
+                .blockInput()
+                .pointerHoverIcon(me.enivzoy.anilife.app.ui.NotAllowedPointer, overrideDescendants = true),
             contentAlignment = Alignment.Center,
         ) {
             Row(
@@ -681,6 +746,18 @@ fun AniLifeApp(
         }
     }
 
+    // A sync, restore or import is running: nothing in the window can be clicked until it ends.
+    if (appBusy) me.enivzoy.anilife.app.ui.BusyOverlay()
+
+    if (accountOpen && accountService != null && accountName != null) {
+        me.enivzoy.anilife.app.ui.AccountSheet(
+            service = accountService,
+            name = accountName,
+            avatar = accountAvatar,
+            onOpenAnime = { accountOpen = false; navigateTo(Screen.Detail(it)) },
+            onDismiss = { accountOpen = false },
+        )
+    }
     if (paletteOpen) {
         CommandPalette(
             repository = repository,

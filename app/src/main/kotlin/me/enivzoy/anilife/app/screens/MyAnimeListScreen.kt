@@ -40,18 +40,27 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import me.enivzoy.anilife.app.data.AccountAdoption
 import me.enivzoy.anilife.app.data.AniListRepository
-import me.enivzoy.anilife.app.data.MyAnimeListEntry
+import me.enivzoy.anilife.app.data.AniListSync
+import me.enivzoy.anilife.app.data.WatchActivityInstance
+import me.enivzoy.anilife.app.data.mergedActivity
+import me.enivzoy.anilife.app.ui.ActivityHeatmap
 import me.enivzoy.anilife.app.data.MyAnimeListSync
 import me.enivzoy.anilife.app.ui.AniLifeColors
 import me.enivzoy.anilife.app.ui.PageScrollbar
 
 @Composable
-fun MyAnimeListScreen(repository: AniListRepository) {
+fun MyAnimeListScreen(
+    repository: AniListRepository,
+    settings: me.enivzoy.anilife.app.data.AppSettings,
+    onSettingsChange: ((me.enivzoy.anilife.app.data.AppSettings) -> me.enivzoy.anilife.app.data.AppSettings) -> Unit,
+    onOpenAccount: () -> Unit = {},
+) {
+    var showTags by remember { mutableStateOf(false) }
     val user by MyAnimeListSync.user.collectAsState()
     val configured by MyAnimeListSync.configured.collectAsState()
     val scope = rememberCoroutineScope()
-    var entries by remember { mutableStateOf<List<MyAnimeListEntry>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -59,7 +68,7 @@ fun MyAnimeListScreen(repository: AniListRepository) {
         loading = true
         error = null
         try {
-            entries = MyAnimeListSync.list()
+            me.enivzoy.anilife.app.data.AccountLibrary.refresh()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Throwable) {
@@ -69,8 +78,23 @@ fun MyAnimeListScreen(repository: AniListRepository) {
         }
     }
 
-    LaunchedEffect(user?.id) {
-        if (user != null) refreshMalList()
+    var showApiDialog by remember { mutableStateOf(false) }
+
+    fun connectMal() {
+        MyAnimeListSync.configure()
+        scope.launch {
+            loading = true
+            error = null
+            try {
+                AccountAdoption.connectMyAnimeList()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                error = failure.message ?: "MyAnimeList sign-in failed."
+            } finally {
+                loading = false
+            }
+        }
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 28.dp)) {
@@ -83,33 +107,23 @@ fun MyAnimeListScreen(repository: AniListRepository) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (user == null) {
-                Text("Connect your MyAnimeList account", color = AniLifeColors.Foreground, fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Connect your MyAnimeList account", color = AniLifeColors.Foreground, fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    me.enivzoy.anilife.app.ui.EditApiValuesButton(me.enivzoy.anilife.app.ui.ApiService.MAL) { showApiDialog = true }
+                }
                 Text(
-                    if (configured) "MyAnimeList is available for account sync."
-                    else "MyAnimeList client configuration is unavailable.",
+                    "Sign in to sync your list and watched progress.",
                     color = AniLifeColors.MutedForeground,
                     fontSize = 12.sp,
                     lineHeight = 18.sp,
                 )
                 Button(
                     onClick = {
-                        MyAnimeListSync.configure()
-                        scope.launch {
-                            loading = true
-                            error = null
-                            try {
-                                MyAnimeListSync.connect()
-                                refreshMalList()
-                            } catch (cancelled: CancellationException) {
-                                throw cancelled
-                            } catch (failure: Throwable) {
-                                error = failure.message ?: "MyAnimeList sign-in failed."
-                            } finally {
-                                loading = false
-                            }
-                        }
+                        // No client ID yet: ask for it first, and sign in once it is saved.
+                        if (me.enivzoy.anilife.app.data.ApiCredentials.shared.isSet(me.enivzoy.anilife.app.data.ApiKey.MAL_CLIENT_ID)) connectMal()
+                        else showApiDialog = true
                     },
-                    enabled = configured && !loading,
+                    enabled = !loading,
                 ) {
                     if (loading) CircularProgressIndicator(Modifier.width(18.dp), strokeWidth = 2.dp)
                     else Icon(Icons.Rounded.Person, contentDescription = null)
@@ -118,55 +132,58 @@ fun MyAnimeListScreen(repository: AniListRepository) {
                 }
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Icon(Icons.Rounded.Person, contentDescription = null, tint = AniLifeColors.Primary)
-                    Column(Modifier.weight(1f)) {
-                        Text(user?.name.orEmpty(), color = AniLifeColors.Foreground, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                        Text("Connected to MyAnimeList", color = AniLifeColors.MutedForeground, fontSize = 12.sp)
-                    }
-                    OutlinedButton(onClick = { scope.launch { refreshMalList() } }, enabled = !loading) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = null)
+                    me.enivzoy.anilife.app.ui.AccountIdentity(
+                        name = user?.name.orEmpty(),
+                        avatar = user?.picture,
+                        subtitle = "Connected to MyAnimeList",
+                        onClick = onOpenAccount,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedButton(onClick = { showTags = true }) { Text("Tags shown as lists") }
+                    OutlinedButton(
+                        onClick = { scope.launch { me.enivzoy.anilife.app.data.AppBusy.hold { refreshMalList() } } },
+                        enabled = !loading,
+                    ) {
+                        // Turns while the list is read, and the whole window waits for it.
+                        if (loading) me.enivzoy.anilife.app.ui.SpinningRefreshIcon(24.dp, androidx.compose.material3.LocalContentColor.current)
+                        else Icon(Icons.Rounded.Refresh, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
                         Text("Sync now")
                     }
                     TextButton(onClick = {
                         scope.launch {
                             MyAnimeListSync.disconnect()
-                            entries = emptyList()
                         }
                     }) { Text("Disconnect") }
+                    me.enivzoy.anilife.app.ui.EditApiValuesButton(me.enivzoy.anilife.app.ui.ApiService.MAL) { showApiDialog = true }
                 }
                 Text("Completed episodes sync to your MAL list after playback finishes.", color = AniLifeColors.MutedForeground, fontSize = 12.sp)
             }
             error?.let { Text(it, color = AniLifeColors.Destructive, fontSize = 12.sp) }
         }
 
-        Spacer(Modifier.height(18.dp))
-        AniListAccountSettings(repository)
-
-        if (user != null) {
-            Spacer(Modifier.height(18.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Rounded.Sync, contentDescription = null, tint = AniLifeColors.MutedForeground)
-                Text("MyAnimeList list", color = AniLifeColors.Foreground, fontSize = 17.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                Text("${entries.size} titles", color = AniLifeColors.MutedForeground, fontSize = 12.sp)
-            }
-            Box(Modifier.weight(1f)) {
-                val listState = rememberLazyListState()
-                LazyColumn(Modifier.fillMaxSize(), state = listState, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    items(entries, key = { it.id }) { entry ->
-                        Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                                .background(AniLifeColors.Card.copy(alpha = 0.65f))
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(entry.title, color = AniLifeColors.Foreground, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1)
-                            Text("${entry.status.replace('_', ' ')} · ${entry.watched} watched", color = AniLifeColors.MutedForeground, fontSize = 11.sp)
-                        }
-                    }
-                }
-                PageScrollbar(listState, Modifier.align(Alignment.CenterEnd))
-            }
+        if (showApiDialog) {
+            me.enivzoy.anilife.app.ui.ApiCredentialsDialog(
+                service = me.enivzoy.anilife.app.ui.ApiService.MAL,
+                canConnect = user == null,
+                onSaved = { MyAnimeListSync.configure() },
+                onConnect = { showApiDialog = false; connectMal() },
+                onDismiss = { showApiDialog = false },
+            )
         }
+
+        if (showTags) {
+            MalTagsDialog(
+                settings = settings,
+                onUpdate = { names ->
+                    onSettingsChange { it.copy(hiddenMalTags = names) }
+                    scope.launch { me.enivzoy.anilife.app.data.AccountLibrary.refresh() }
+                },
+                onDismiss = { showTags = false },
+            )
+        }
+
+        Spacer(Modifier.height(18.dp))
+        AniListAccountSettings(repository, onOpenAccount)
     }
 }

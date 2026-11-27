@@ -1,0 +1,144 @@
+name: Sync from upstream
+
+# Merges the latest code from the original repo (anilifecommunity/kotlindesktop) into this fork's
+# main branch, keeping this fork's own changes (the MyAnimeList fix and the updater address).
+# Two things are always ours and never taken from upstream: everything in .github/workflows and README.md.
+# If upstream changed the same lines as this fork, the run stops and reports the conflict without
+# changing anything, so it can be fixed by hand.
+#
+# Runs weekly at 00:30 Austin time (America/Chicago, daylight saving handled by GitHub), or manually.
+# A build is started only when the version in fork-version.properties has no release here yet.
+# That version follows the original project: when it publishes a newer release, base moves up and
+# revision starts again at 1 (never ahead of what the original has actually published).
+# "Force build" starts one regardless.
+#
+# The build workflow also starts on its own when a push to main changes fork-version.properties. The
+# pushes below use the built-in token, which GitHub does not let start workflows, so this file's own
+# "Start a build" step is the only thing that builds after a sync. Keep it that way: if these pushes
+# are ever made with a personal access token, the same version would be built twice.
+
+on:
+  schedule:
+    - cron: "30 0 * * 1"
+      timezone: "America/Chicago"
+  workflow_dispatch:
+    inputs:
+      build_after_sync:
+        description: "Start a build if this version has no release yet"
+        type: boolean
+        default: true
+      force_build:
+        description: "Start a build even if this version already has a release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      UPSTREAM_URL: https://github.com/anilifecommunity/kotlindesktop.git
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Merge upstream, keeping our workflows and README
+        id: sync
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch --no-tags "$UPSTREAM_URL" main:refs/remotes/upstream/main
+          up_sha=$(git rev-parse upstream/main)
+
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "Already up to date with upstream ${up_sha:0:7}."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Merge without committing; conflicts are handled below.
+          git merge --no-commit --no-ff upstream/main || true
+
+          # .github/workflows and README.md are always ours, whatever upstream did to them.
+          git rm -r -q -f --cached --ignore-unmatch .github/workflows
+          rm -rf .github/workflows
+          git checkout HEAD -- .github/workflows README.md
+
+          if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
+            echo "Merge conflict between upstream and this fork in:"
+            git diff --name-only --diff-filter=U
+            git merge --abort
+            echo "Nothing was changed. Resolve these files by hand."
+            exit 1
+          fi
+
+          git commit -q -m "Merge upstream ${up_sha:0:7} into main"
+
+          # Safety net: the merge must not touch the workflows folder or README compared with main.
+          if git diff --name-only HEAD~1 HEAD | grep -E '^(\.github/workflows/|README\.md$)'; then
+            echo "Refusing to push: the merge changed the workflows folder or README."
+            exit 1
+          fi
+
+          git push origin HEAD:main
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "Merged upstream ${up_sha:0:7}"
+
+      - name: Follow the original's latest published release
+        id: follow
+        shell: bash
+        run: |
+          latest=$(gh api repos/anilifecommunity/kotlindesktop/releases/latest --jq .tag_name 2>/dev/null || true)
+          latest=${latest#v}
+          base=$(grep -oP '^base=\K\S+' fork-version.properties)
+          if ! [[ "$latest" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Could not read the original's latest release (got '$latest'); keeping base $base."
+          elif [ "$latest" != "$base" ] && [ "$(printf '%s\n%s\n' "$base" "$latest" | sort -V | tail -1)" = "$latest" ]; then
+            echo "The original published $latest (this fork was on $base). Moving base up; revision restarts at 1."
+            sed -i -E "s/^base=.*/base=$latest/; s/^revision=.*/revision=1/" fork-version.properties
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add fork-version.properties
+            git commit -q -m "chore: follow upstream release $latest (revision 1)"
+            git push origin HEAD:main
+          else
+            echo "Base $base is current (the original's latest release is $latest)."
+          fi
+
+      - name: Check whether this version already has a release
+        id: version
+        shell: bash
+        run: |
+          version="$(grep -oP '^base=\K\S+' fork-version.properties)-AK$(grep -oP '^revision=\K\S+' fork-version.properties)"
+          tag="v$version"
+          if out=$(gh api "repos/${{ github.repository }}/releases/tags/$tag" 2>&1); then
+            echo "Release $tag already exists."
+            echo "need_build=false" >> "$GITHUB_OUTPUT"
+          elif echo "$out" | grep -q "Not Found"; then
+            echo "No release for $tag yet, a build is needed."
+            echo "need_build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Could not check releases: $out"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Version check"
+            echo "fork-version.properties version: \`$version\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Start a build
+        if: (steps.version.outputs.need_build == 'true' && inputs.build_after_sync != false) || inputs.force_build == true
+        run: gh workflow run build-windows.yml --repo "${{ github.repository }}" --ref main

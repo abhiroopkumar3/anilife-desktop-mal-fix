@@ -36,10 +36,10 @@ import java.time.format.DateTimeFormatter
 private val logger = KotlinLogging.logger("AniLife.updater")
 
 private const val DEFAULT_MANIFEST_URL =
-    "https://github.com/anilifecommunity/kotlindesktop/releases/latest/download/latest.json"
+    "https://api.github.com/repos/abhiroopkumar3/anilife-desktop-mal-fix/releases/latest"
 
-private const val FALLBACK_MANIFEST_URL =
-    "https://api.github.com/repos/anilifecommunity/kotlindesktop/releases/latest"
+// The fork has one release feed, so the fallback is the same address and is only tried once.
+private const val FALLBACK_MANIFEST_URL = DEFAULT_MANIFEST_URL
 
 private const val PROGRESS_STEP_PERCENT = 25L
 private const val PROGRESS_STEP_BYTES = 10L * 1024L * 1024L
@@ -272,7 +272,7 @@ class Updater(
     private suspend fun fetchUpdate(currentVersion: String): Update? {
         logger.info { "update check start current=$currentVersion" }
         val failures = mutableListOf<String>()
-        for (url in listOf(manifestUrl, fallbackManifestUrl)) {
+        for (url in listOf(manifestUrl, fallbackManifestUrl).distinct()) {
             val safeUrl = redactForLog(url)
             logger.info { "manifest query url=$safeUrl" }
             try {
@@ -360,8 +360,18 @@ class Updater(
             return base.resolve("AniLifeUpdater").resolve(UPDATES_DIRECTORY)
         }
 
-        fun parseVersion(version: String): List<Int> =
-            version.trim().split('.').mapNotNull { it.toIntOrNull() }.ifEmpty { listOf(0) }
+        /**
+         * "1.0.7" is [1, 0, 7]. A fork patch suffix counts as one more number, so "1.0.7-AK2" is
+         * [1, 0, 7, 2]: newer than 1.0.7 and older than 1.0.8, which keeps this fork's releases
+         * from ever running ahead of the original project's.
+         */
+        fun parseVersion(version: String): List<Int> {
+            val trimmed = version.trim()
+            val patch = Regex("-AK(\\d+)$", RegexOption.IGNORE_CASE).find(trimmed)
+            val base = if (patch != null) trimmed.removeSuffix(patch.value) else trimmed
+            val parts = base.split('.').mapNotNull { it.toIntOrNull() }.ifEmpty { listOf(0) }
+            return if (patch != null) parts + patch.groupValues[1].toInt() else parts
+        }
 
         fun isNewer(candidate: String, current: String): Boolean {
             val left = parseVersion(candidate)
@@ -391,14 +401,11 @@ internal fun parseUpdateManifest(body: String, currentVersion: String, platform:
         it.string("platform").equals(platform, ignoreCase = true)
     }
     val releaseAsset = if (root.string("tag_name") != null) {
-        assets.firstOrNull {
-            val name = it.string("name").orEmpty()
-            name.endsWith(".base.msi", ignoreCase = true) ||
-                name.endsWith("#base.msi", ignoreCase = true)
-        } ?: assets.firstOrNull {
-            val name = it.string("name").orEmpty()
-            name.endsWith(".base.exe", ignoreCase = true) ||
-                name.endsWith("#base.exe", ignoreCase = true)
+        // Current releases ship anilife-<version>.x64.exe. Older ones used .base.exe, and a release
+        // keeps a .base.exe copy so installed copies that only look for that name still update.
+        val names = listOf(".x64.exe", ".base.exe", "#base.exe")
+        names.firstNotNullOfOrNull { suffix ->
+            assets.firstOrNull { it.string("name").orEmpty().endsWith(suffix, ignoreCase = true) }
         }
     } else {
         null

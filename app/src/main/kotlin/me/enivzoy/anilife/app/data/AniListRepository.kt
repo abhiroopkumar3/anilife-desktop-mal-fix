@@ -76,6 +76,17 @@ class AniListRepository(
     suspend fun schedule(): List<me.enivzoy.anilife.core.model.AiringEntry> =
         client.schedule(days = 7, since = System.currentTimeMillis() / 1000 - 2 * 86_400L)
 
+    /**
+     * When the next episodes of [ids] air: from yesterday for [UPCOMING_AIRING_DAYS] days, by title.
+     * Yesterday is included because an episode that aired late last night may not be watchable yet.
+     */
+    suspend fun upcomingAirings(ids: List<Long>): UpcomingAiring {
+        val startOfYesterday = java.time.LocalDate.now().minusDays(1)
+            .atStartOfDay(java.time.ZoneId.systemDefault()).toEpochSecond()
+        val times = client.airingTimes(ids, from = startOfYesterday, to = startOfYesterday + UPCOMING_AIRING_DAYS * 86_400L)
+        return upcomingAiringFrom(times)
+    }
+
     /** What has aired in the last [hours], used to announce new episodes of library titles. */
     suspend fun recentlyAired(hours: Int): List<me.enivzoy.anilife.core.model.AiringEntry> =
         client.schedule(days = 1, since = System.currentTimeMillis() / 1000 - hours * 3600L)
@@ -169,11 +180,23 @@ class AniListRepository(
         }
     }
 
-    fun addToLibrary(anime: AnimeCard) = library.add(anime)
+    suspend fun cardsByIds(ids: List<Long>): List<AnimeCard> = client.cardsByIds(ids)
 
-    fun addToLibrary(anime: List<AnimeCard>) = library.addAll(anime)
+    suspend fun cardsByMalIds(malIds: List<Long>): List<AnimeCard> = client.cardsByMalIds(malIds)
 
-    fun removeFromLibrary(id: Long) = library.remove(id)
+    /** Told about every save and unsave so the signed-in account can follow. Set by the app shell. */
+    @Volatile var onSaveChanged: (AnimeCard, Boolean) -> Unit = { _, _ -> }
+    @Volatile var onBulkSaved: () -> Unit = {}
+
+    fun addToLibrary(anime: AnimeCard) { library.add(anime); onSaveChanged(anime, true) }
+
+    fun addToLibrary(anime: List<AnimeCard>) { library.addAll(anime); if (anime.isNotEmpty()) onBulkSaved() }
+
+    fun removeFromLibrary(id: Long) {
+        val card = library.entries.value.firstOrNull { it.id == id }
+        library.remove(id)
+        if (card != null) onSaveChanged(card, false)
+    }
 
     fun addLocalEpisodes(episodes: List<LocalEpisode>) = downloads.addAll(episodes)
 

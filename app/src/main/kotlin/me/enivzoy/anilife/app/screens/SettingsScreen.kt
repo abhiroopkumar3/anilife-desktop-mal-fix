@@ -101,6 +101,9 @@ import androidx.compose.ui.text.platform.Font
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import me.enivzoy.anilife.app.data.PosterElement
+import me.enivzoy.anilife.app.data.posterElementNames
+import me.enivzoy.anilife.app.data.posterElementsOff
 import me.enivzoy.anilife.app.data.AppSettings
 import me.enivzoy.anilife.app.data.AniListRepository
 import me.enivzoy.anilife.app.data.AppBackup
@@ -326,6 +329,7 @@ SettingSearchEntry("Keyboard shortcuts", SettingsPage.Player, "keys binding rebi
     SettingSearchEntry("Video providers", SettingsPage.Servers, "providers servers streaming wasm extensions"),
     SettingSearchEntry("Discord Rich Presence", SettingsPage.Accounts, "discord activity status watching idle connect"),
     SettingSearchEntry("Discord Application ID", SettingsPage.Accounts, "discord developer application id"),
+    SettingSearchEntry("Only episodes you can watch", SettingsPage.Content, "continue watching hide next episode aired airing schedule"),
     SettingSearchEntry("Title display language", SettingsPage.Content, "anime name title romaji english native"),
     SettingSearchEntry("High Refresh Rate UI", SettingsPage.Appearance, "120fps animation frame rate smooth refresh"),
     SettingSearchEntry("Appearance theme", SettingsPage.Appearance, "default frosted glass liquid glass theme mode look preview"),
@@ -335,6 +339,7 @@ SettingSearchEntry("Keyboard shortcuts", SettingsPage.Player, "keys binding rebi
     SettingSearchEntry("Reduced motion", SettingsPage.Appearance, "accessibility animation off no motion"),
     SettingSearchEntry("Glass customization", SettingsPage.Appearance, "blur transparency highlight edge reflections"),
     SettingSearchEntry("App font", SettingsPage.Appearance, "font typeface text sans serif mono"),
+    SettingSearchEntry("Refresh button", SettingsPage.Appearance, "refresh reload button position placement corner sidebar left bar"),
     SettingSearchEntry("Theme colors", SettingsPage.Appearance, "css theme colors palette editor custom look style"),
     SettingSearchEntry("Playback buffer", SettingsPage.Data, "stream buffering memory"),
     SettingSearchEntry("Back up to a file", SettingsPage.Data, "backup save export library settings json"),
@@ -1329,6 +1334,14 @@ private fun ContentSettings(settings: AppSettings, onSettingsChange: ((AppSettin
             onSelect = { value -> onSettingsChange { it.copy(titleLanguage = value) } },
         )
     }
+    SettingsRow(
+        "Only episodes you can watch",
+        "Drop a title from Continue Watching until its next episode is out.",
+    ) {
+        SettingsSwitch(settings.hideUnairedFromContinue) { enabled ->
+            onSettingsChange { it.copy(hideUnairedFromContinue = enabled) }
+        }
+    }
 }
 
 @Composable
@@ -1392,6 +1405,16 @@ private fun AppearanceSettings(settings: AppSettings, onSettingsChange: ((AppSet
                 choices = ScrollAnimationDuration.entries.map { it.storageKey to it.label },
                 selected = settings.scrollAnimationDuration,
                 onSelect = { value -> onSettingsChange { it.copy(scrollAnimationDuration = value) } },
+            )
+        }
+        SettingsRow(
+            "Refresh button",
+            "Where the button that reloads the screen sits: a corner of the page, or in the left bar above Notifications.",
+        ) {
+            SettingsSegmented(
+                choices = listOf("sidebar" to "Left bar", "top-right" to "Top right", "bottom-right" to "Bottom right"),
+                selected = settings.refreshButtonPlacement,
+                onSelect = { value -> onSettingsChange { it.copy(refreshButtonPlacement = value) } },
             )
         }
     }
@@ -1534,18 +1557,23 @@ private fun DataSettings(
     var result by remember { mutableStateOf<DataResult?>(null) }
     var pendingRestore by remember { mutableStateOf<BackupDocument?>(null) }
 
-    fun run(label: String, work: suspend () -> DataResult) {
+    // True while a restore or an import runs: the progress line turns an icon, and the whole window waits.
+    var blocking by remember { mutableStateOf(false) }
+
+    fun run(label: String, holdsApp: Boolean = false, work: suspend () -> DataResult) {
         busy = label
+        blocking = holdsApp
         result = null
         scope.launch {
             result = try {
-                work()
+                if (holdsApp) me.enivzoy.anilife.app.data.AppBusy.hold { work() } else work()
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (failure: Throwable) {
                 DataResult(failure.message?.takeIf(String::isNotBlank) ?: "That didn't work.", isError = true)
             } finally {
                 busy = null
+                blocking = false
             }
         }
     }
@@ -1579,7 +1607,7 @@ private fun DataSettings(
     }
 
     fun restore(document: BackupDocument) {
-        run("Restoring") {
+        run("Restoring", holdsApp = true) {
             val summary = transfer.restore(document, applySettings = onSettingsChange, onProgress = progressLabel("Restoring"))
             val extras = buildList {
                 if (summary.notRestored.isNotEmpty()) add("Not carried over: ${summary.notRestored.joinToString(", ")}.")
@@ -1611,7 +1639,7 @@ private fun DataSettings(
 
     fun importMal() {
         val source = chooseDataFile("Choose a MyAnimeList export (.xml or .xml.gz)", save = false) ?: return
-        run("Importing") {
+        run("Importing", holdsApp = true) {
             val bytes = withContext(Dispatchers.IO) {
                 if (java.nio.file.Files.size(source) > me.enivzoy.anilife.app.data.MalImport.MAX_SOURCE_BYTES) {
                     throw IllegalArgumentException("The MAL export is larger than the 16 MB safety limit.")
@@ -1639,17 +1667,6 @@ private fun DataSettings(
             "Replaces the shared settings; adds saved anime and history to this PC. Works with files from the Android app.",
         ) { SettingsButton(text = "Restore", enabled = busy == null, onClick = ::chooseBackup) }
     }
-    SettingsSection("Saved titles and your account") {
-        SettingsRow(
-            "Add saved titles to my account",
-            "After a restore or an import, titles saved here that your signed-in MyAnimeList or AniList " +
-                "account does not have are added to its Plan to Watch. Titles already on your list are never changed.",
-        ) {
-            SettingsSwitch(settings.syncSavedToAccount) { enabled ->
-                onSettingsChange { it.copy(syncSavedToAccount = enabled) }
-            }
-        }
-    }
     SettingsSection("MyAnimeList files") {
         SettingsRow(
             "Export MyAnimeList XML",
@@ -1660,7 +1677,17 @@ private fun DataSettings(
             "Add a MAL export to your library. Titles you already saved are left alone.",
         ) { SettingsButton(text = "Import", enabled = busy == null, onClick = ::importMal) }
     }
-    busy?.let { SettingsNote("$it…") }
+    busy?.let { label ->
+        if (blocking) {
+            Row(Modifier.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                me.enivzoy.anilife.app.ui.SpinningRefreshIcon(14.dp, AniLifeColors.MutedForeground)
+                Spacer(Modifier.width(6.dp))
+                Text("$label…", color = AniLifeColors.MutedForeground, fontSize = 12.sp, lineHeight = 17.sp)
+            }
+        } else {
+            SettingsNote("$label…")
+        }
+    }
     result?.takeIf { it.message.isNotBlank() }?.let { outcome ->
         Text(
             outcome.message,
@@ -1744,7 +1771,28 @@ private fun AppSettingsPage(
     checkingForUpdates: Boolean,
     onCheckForUpdates: () -> Unit,
 ) {
+    SettingsSection("Library posters") {
+        PosterElement.entries.forEach { element ->
+            SettingsRow(element.label, "Show this on each poster on the Library page.") {
+                val off = posterElementsOff(settings.hiddenPosterElements)
+                SettingsSwitch(element !in off) { shown ->
+                    onSettingsChange {
+                        val now = posterElementsOff(it.hiddenPosterElements)
+                        it.copy(hiddenPosterElements = posterElementNames(if (shown) now - element else now + element))
+                    }
+                }
+            }
+        }
+    }
     SettingsSection("Updates") {
+        SettingsRow(
+            "Sync saved titles with your account",
+            "Add your account's Plan to watch titles to your saved list, and send saved titles to your account as Plan to watch. This includes titles saved by a restore or an import; titles already on your list are never changed.",
+        ) {
+            SettingsSwitch(settings.syncSavedToAccount) { enabled ->
+                onSettingsChange { it.copy(syncSavedToAccount = enabled) }
+            }
+        }
         SettingsRow(
             "Check for updates on launch",
             "Look for a newer AniLife release when the app starts. You choose whether to install it.",
