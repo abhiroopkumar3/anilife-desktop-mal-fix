@@ -101,19 +101,22 @@ end;
 
 var
   RemoveUserData: Boolean;
+  RemoveComponents: Boolean;
 
 // Asked before anything is removed. Ticked by default, so a full uninstall leaves nothing behind;
-// untick it to keep the settings, account sign-ins and downloads list for a later install. A silent
-// uninstall never deletes them.
+// untick it to keep the settings, account sign-ins and downloads list for a later install. The second
+// box does the same for the Java runtime, mpv, ffmpeg and upscaler that the first run downloaded. A silent
+// uninstall never deletes either.
 function InitializeUninstall(): Boolean;
 var
   Form: TForm;
   Prompt: TLabel;
-  Box: TCheckBox;
+  Box, ComponentsBox: TCheckBox;
   Ok, Cancel: TButton;
 begin
   Result := True;
   RemoveUserData := False;
+  RemoveComponents := False;
   if UninstallSilent then
     Exit;
   Form := TForm.Create(nil);
@@ -122,7 +125,7 @@ begin
     Form.Position := poScreenCenter;
     Form.Caption := 'Uninstall {#AppName}';
     Form.ClientWidth := ScaleX(420);
-    Form.ClientHeight := ScaleY(150);
+    Form.ClientHeight := ScaleY(200);
 
     Prompt := TLabel.Create(Form);
     Prompt.Parent := Form;
@@ -137,22 +140,31 @@ begin
     Box.Caption := 'Also delete all settings and data (%LOCALAPPDATA%\AniLife)';
     Box.Checked := True;
 
+    ComponentsBox := TCheckBox.Create(Form);
+    ComponentsBox.Parent := Form;
+    ComponentsBox.SetBounds(ScaleX(16), ScaleY(100), ScaleX(388), ScaleY(36));
+    ComponentsBox.Caption := 'Also delete the downloaded Java, mpv, ffmpeg and upscaler (%APPDATA%\bin)';
+    ComponentsBox.Checked := True;
+
     Ok := TButton.Create(Form);
     Ok.Parent := Form;
     Ok.Caption := 'Uninstall';
     Ok.ModalResult := mrOk;
     Ok.Default := True;
-    Ok.SetBounds(ScaleX(236), ScaleY(110), ScaleX(80), ScaleY(26));
+    Ok.SetBounds(ScaleX(236), ScaleY(160), ScaleX(80), ScaleY(26));
 
     Cancel := TButton.Create(Form);
     Cancel.Parent := Form;
     Cancel.Caption := 'Cancel';
     Cancel.ModalResult := mrCancel;
     Cancel.Cancel := True;
-    Cancel.SetBounds(ScaleX(324), ScaleY(110), ScaleX(80), ScaleY(26));
+    Cancel.SetBounds(ScaleX(324), ScaleY(160), ScaleX(80), ScaleY(26));
 
     if Form.ShowModal() = mrOk then
-      RemoveUserData := Box.Checked
+    begin
+      RemoveUserData := Box.Checked;
+      RemoveComponents := ComponentsBox.Checked;
+    end
     else
       Result := False;
   finally
@@ -160,8 +172,36 @@ begin
   end;
 end;
 
+// Only what the app downloaded is removed, never the whole folder: "bin" is a common name and may hold
+// other programs' files. The folder itself goes only if it is left empty.
+procedure RemoveDownloadedComponents();
+var
+  Bin, Name: String;
+  Names: array of String;
+  I: Integer;
+begin
+  Bin := ExpandConstant('{userappdata}\bin');
+  SetArrayLength(Names, 4);
+  Names[0] := 'jre';
+  Names[1] := 'mpv';
+  Names[2] := 'ffmpeg';
+  Names[3] := 'upscaler';
+  for I := 0 to 3 do
+  begin
+    Name := Names[I];
+    DelTree(Bin + '\' + Name, True, True, True);
+    DeleteFile(Bin + '\' + Name + '.installed');
+  end;
+  DeleteFile(Bin + '\use-jre');
+  RemoveDir(Bin);
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
-  if (CurUninstallStep = usPostUninstall) and RemoveUserData then
+  if CurUninstallStep <> usPostUninstall then
+    Exit;
+  if RemoveUserData then
     DelTree(ExpandConstant('{localappdata}\AniLife'), True, True, True);
+  if RemoveComponents then
+    RemoveDownloadedComponents();
 end;
