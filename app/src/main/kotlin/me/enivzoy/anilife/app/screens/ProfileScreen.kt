@@ -119,6 +119,49 @@ fun ProfileScreen(onOpenAnime: (Long) -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableIntStateOf(0) }
     var tab by remember { mutableIntStateOf(0) }
+    // Whether the MyAnimeList client ID is being asked for, and whether Connect follows the save.
+    var askFor by remember { mutableStateOf(false) }
+    var connectAfterSave by remember { mutableStateOf(false) }
+
+    fun malIdMissing(): Boolean {
+        MyAnimeListSync.configure()
+        return !MyAnimeListSync.isConfigured()
+    }
+
+    // AniList is left as upstream has it: the browser step only, with the built-in client ID.
+    fun linkAniList() {
+        try {
+            AniListSync.beginAuth()
+        } catch (failure: Throwable) {
+            error = failure.message ?: "Couldn't open AniList sign-in."
+        }
+    }
+
+    fun linkMal() {
+        if (malIdMissing()) {
+            connectAfterSave = true
+            askFor = true
+            return
+        }
+        scope.launch {
+            error = null
+            try {
+                MyAnimeListSync.connect()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                error = failure.message ?: "MyAnimeList sign-in failed."
+            }
+        }
+    }
+
+    // Reload: a connected MyAnimeList whose client ID has been removed from the .env file is asked for it again.
+    fun checkIdOnReload() {
+        if (malUser != null && malIdMissing()) {
+            connectAfterSave = false
+            askFor = true
+        }
+    }
 
     suspend fun loadProfile() {
         error = null
@@ -193,26 +236,8 @@ fun ProfileScreen(onOpenAnime: (Long) -> Unit) {
             ProfileState.Unlinked -> UnlinkedProfile(
                 malConfigured = malConfigured,
                 error = error,
-                onAniList = {
-                    try {
-                        AniListSync.beginAuth()
-                    } catch (failure: Throwable) {
-                        error = failure.message ?: "Couldn't open AniList sign-in."
-                    }
-                },
-                onMal = {
-                    scope.launch {
-                        error = null
-                        try {
-                            MyAnimeListSync.configure()
-                            MyAnimeListSync.connect()
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (failure: Throwable) {
-                            error = failure.message ?: "MyAnimeList sign-in failed."
-                        }
-                    }
-                },
+                onAniList = ::linkAniList,
+                onMal = ::linkMal,
             )
 
             is ProfileState.Loaded -> LoadedProfile(
@@ -221,7 +246,7 @@ fun ProfileScreen(onOpenAnime: (Long) -> Unit) {
                 onTab = { tab = it },
                 error = error,
                 onOpenAnime = onOpenAnime,
-                onRefresh = { reloadKey++ },
+                onRefresh = { checkIdOnReload(); reloadKey++ },
                 onOpenProfile = { url ->
                     runCatching {
                         if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
@@ -248,6 +273,19 @@ fun ProfileScreen(onOpenAnime: (Long) -> Unit) {
                 },
             )
         }
+    }
+
+    if (askFor) {
+        me.enivzoy.anilife.app.ui.ApiCredentialsDialog(
+            service = me.enivzoy.anilife.app.ui.ApiService.MAL,
+            canConnect = connectAfterSave,
+            onSaved = { MyAnimeListSync.configure() },
+            onConnect = {
+                askFor = false
+                linkMal()
+            },
+            onDismiss = { askFor = false },
+        )
     }
 }
 
@@ -286,10 +324,7 @@ private fun UnlinkedProfile(
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(4.dp))
-            ProfileButton("Link MAL", onClick = onMal, enabled = malConfigured, modifier = Modifier.fillMaxWidth())
-            if (!malConfigured) {
-                Text("MyAnimeList client configuration is unavailable.", color = AniLifeColors.Destructive, fontSize = 11.sp)
-            }
+            ProfileButton("Link MAL", onClick = onMal, modifier = Modifier.fillMaxWidth())
             error?.let { Text(it, color = AniLifeColors.Destructive, fontSize = 12.sp, textAlign = TextAlign.Center) }
         }
     }

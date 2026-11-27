@@ -1,8 +1,19 @@
 package me.enivzoy.anilife.app.data
 
-/** Public AniList OAuth client ID. A value in the environment or the `.env` file overrides it. */
+import java.io.File
+
+/** Public AniList OAuth client ID, overridable via environment or a local .env file. */
 object AniListConfig {
     const val DEFAULT_CLIENT_ID = "56997"
 
-    fun clientId(): String = ApiCredentials.shared.read(ApiKey.ANILIST_CLIENT_ID).ifBlank { DEFAULT_CLIENT_ID }
+    fun clientId(): String {
+        val fromEnvironment = System.getenv("ANILIST_CLIENT_ID")?.trim().orEmpty()
+        val fromFile = runCatching {
+            File(System.getProperty("user.dir"), ".env").readLines()
+                .firstOrNull { it.trimStart().startsWith("ANILIST_CLIENT_ID=") }
+                ?.substringAfter('=')?.trim()?.trim('"', '\'')
+        }.getOrNull().orEmpty()
+        return (fromEnvironment.ifBlank { fromFile }.ifBlank { DEFAULT_CLIENT_ID }).take(128)
+    }
+
 }
