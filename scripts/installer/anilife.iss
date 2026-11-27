@@ -112,6 +112,7 @@ var
   Form: TForm;
   Prompt: TLabel;
   Box, ComponentsBox: TCheckBox;
+  ComponentsPath: TLabel;
   Ok, Cancel: TButton;
 begin
   Result := True;
@@ -124,41 +125,49 @@ begin
     Form.BorderStyle := bsDialog;
     Form.Position := poScreenCenter;
     Form.Caption := 'Uninstall {#AppName}';
-    Form.ClientWidth := ScaleX(420);
-    Form.ClientHeight := ScaleY(200);
+    Form.ClientWidth := ScaleX(460);
+    Form.ClientHeight := ScaleY(205);
 
     Prompt := TLabel.Create(Form);
     Prompt.Parent := Form;
     Prompt.AutoSize := False;
     Prompt.WordWrap := True;
-    Prompt.SetBounds(ScaleX(16), ScaleY(16), ScaleX(388), ScaleY(48));
+    Prompt.SetBounds(ScaleX(16), ScaleY(16), ScaleX(428), ScaleY(48));
     Prompt.Caption := 'This removes {#AppName} from this PC.';
 
     Box := TCheckBox.Create(Form);
     Box.Parent := Form;
-    Box.SetBounds(ScaleX(16), ScaleY(60), ScaleX(388), ScaleY(36));
+    Box.SetBounds(ScaleX(16), ScaleY(60), ScaleX(428), ScaleY(36));
     Box.Caption := 'Also delete all settings and data (%LOCALAPPDATA%\AniLife)';
     Box.Checked := True;
 
+    // The folder sits on its own wrapped line so a long caption is never cut off at the edge of the box.
     ComponentsBox := TCheckBox.Create(Form);
     ComponentsBox.Parent := Form;
-    ComponentsBox.SetBounds(ScaleX(16), ScaleY(100), ScaleX(388), ScaleY(36));
-    ComponentsBox.Caption := 'Also delete the downloaded Java, mpv, ffmpeg and upscaler (%APPDATA%\bin)';
+    ComponentsBox.SetBounds(ScaleX(16), ScaleY(100), ScaleX(428), ScaleY(20));
+    ComponentsBox.Caption := 'Also delete the downloaded Java, mpv, ffmpeg and upscaler';
     ComponentsBox.Checked := True;
+
+    ComponentsPath := TLabel.Create(Form);
+    ComponentsPath.Parent := Form;
+    ComponentsPath.AutoSize := False;
+    ComponentsPath.WordWrap := True;
+    ComponentsPath.SetBounds(ScaleX(36), ScaleY(122), ScaleX(408), ScaleY(32));
+    ComponentsPath.Caption := 'Stored in %APPDATA%\bin. Only these four items are removed.';
 
     Ok := TButton.Create(Form);
     Ok.Parent := Form;
     Ok.Caption := 'Uninstall';
     Ok.ModalResult := mrOk;
     Ok.Default := True;
-    Ok.SetBounds(ScaleX(236), ScaleY(160), ScaleX(80), ScaleY(26));
+    Ok.SetBounds(ScaleX(276), ScaleY(165), ScaleX(80), ScaleY(26));
 
     Cancel := TButton.Create(Form);
     Cancel.Parent := Form;
     Cancel.Caption := 'Cancel';
     Cancel.ModalResult := mrCancel;
     Cancel.Cancel := True;
-    Cancel.SetBounds(ScaleX(324), ScaleY(160), ScaleX(80), ScaleY(26));
+    Cancel.SetBounds(ScaleX(364), ScaleY(165), ScaleX(80), ScaleY(26));
 
     if Form.ShowModal() = mrOk then
     begin
