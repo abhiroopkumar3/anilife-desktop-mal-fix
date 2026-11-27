@@ -6,12 +6,6 @@ name: Test on Windows ARM
 # Run it by hand. Leave run_id empty to use the newest successful Build run.
 
 on:
-  # GitHub only lists a manually started workflow once it is on main. Until this file reaches main,
-  # a push to the feature branch that touches it runs it (newest successful build, 30 s). Remove
-  # this push trigger once the file is on main.
-  push:
-    branches: [feat/library-refresh-accounts-installer]
-    paths: [.github/workflows/test-windows-arm.yml]
   workflow_dispatch:
     inputs:
       run_id:
