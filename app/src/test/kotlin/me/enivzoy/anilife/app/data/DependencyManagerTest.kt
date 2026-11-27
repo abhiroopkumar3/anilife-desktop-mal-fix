@@ -58,6 +58,40 @@ class DependencyManagerTest {
     }
 
     @Test
+    fun fetchTextDoesNotSendGithubHeadersToOtherHosts() {
+        // Adoptium answered 406 to GitHub's media type; a host that is not GitHub gets plain JSON.
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val port = server.address.port
+        server.createContext("/api") { exchange ->
+            val accept = exchange.requestHeaders.getFirst("Accept").orEmpty()
+            val github = exchange.requestHeaders.getFirst("X-GitHub-Api-Version")
+            if (accept == "application/json" && github == null) respond(exchange, 200, "[]") else respond(exchange, 406, "no")
+        }
+        server.start()
+        try {
+            assertEquals("[]", fetchText("http://127.0.0.1:$port/api"))
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun fetchTextRetriesOnceWithNoPreferenceWhenAnswered406() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val port = server.address.port
+        server.createContext("/api") { exchange ->
+            val accept = exchange.requestHeaders.getFirst("Accept").orEmpty()
+            if (accept == "*/*") respond(exchange, 200, "[]") else respond(exchange, 406, "no")
+        }
+        server.start()
+        try {
+            assertEquals("[]", fetchText("http://127.0.0.1:$port/api"))
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
     fun fetchTextRejectsNonSuccessStatus() {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         val port = server.address.port

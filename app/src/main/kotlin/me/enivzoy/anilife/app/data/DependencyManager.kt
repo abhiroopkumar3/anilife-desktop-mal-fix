@@ -76,7 +76,13 @@ internal fun upscalerSource(): DependencySource =
     DependencySource(UPSCALER_ARCHIVE, UPSCALER_SHA256, UPSCALER_VERSION)
 
 internal fun fetchText(url: String): String {
-    val connection = openConnection(url, api = true, followRedirects = true, connectMs = 30_000, readMs = 30_000)
+    // The first try asks for JSON the way each host expects. A host that still answers 406 (Not Acceptable)
+    // is asked once more with no preference, so a strict Accept header cannot stop the setup.
+    var connection = openConnection(url, api = true, followRedirects = true, connectMs = 30_000, readMs = 30_000)
+    if (connection.responseCode == 406) {
+        connection.disconnect()
+        connection = openConnection(url, api = true, followRedirects = true, connectMs = 30_000, readMs = 30_000, accept = "*/*")
+    }
     return try {
         requireSuccess(connection)
         connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
@@ -85,19 +91,31 @@ internal fun fetchText(url: String): String {
     }
 }
 
+/** GitHub's own media type and version header are sent to GitHub only; other hosts (Adoptium) get plain JSON. */
 internal fun openConnection(
     url: String,
     api: Boolean,
     followRedirects: Boolean,
     connectMs: Int,
     readMs: Int,
-): HttpURLConnection = (URI(url).toURL().openConnection() as HttpURLConnection).apply {
-    instanceFollowRedirects = followRedirects
-    connectTimeout = connectMs
-    readTimeout = readMs
-    setRequestProperty("User-Agent", USER_AGENT)
-    setRequestProperty("Accept", if (api) "application/vnd.github+json" else "application/octet-stream")
-    if (api) setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
+    accept: String? = null,
+): HttpURLConnection {
+    val github = URI(url).host.orEmpty().let { it == "github.com" || it.endsWith(".github.com") }
+    return (URI(url).toURL().openConnection() as HttpURLConnection).apply {
+        instanceFollowRedirects = followRedirects
+        connectTimeout = connectMs
+        readTimeout = readMs
+        setRequestProperty("User-Agent", USER_AGENT)
+        setRequestProperty(
+            "Accept",
+            accept ?: when {
+                api && github -> "application/vnd.github+json"
+                api -> "application/json"
+                else -> "application/octet-stream"
+            },
+        )
+        if (api && github) setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
+    }
 }
 
 internal fun requireSuccess(connection: HttpURLConnection) {
